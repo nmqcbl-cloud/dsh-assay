@@ -42,6 +42,29 @@ function check(name, cond, detail) {
   }
 }
 
+/**
+ * 联网兜底。
+ *
+ * v1.1 起，被测代码（`execute()` 里的 `cache_control` 探针）会**真的发 HTTP**。
+ * 所以"离线测试零联网、不花钱"不能靠自觉 —— 必须有个东西在真发出去时拦下来。
+ * 这里把全局 `fetch` 换成毒药：调用即记账 + 抛错。需要联网语境的测试
+ * （如第 13 组的端到端）自己临时把它换成桩，用完还原到这一个。
+ *
+ * 少了它，第 13 组那个端到端测试就会在密钥有效时**真的花钱**，
+ * 而测试仍然是绿的 —— 那才是最坏的情况。
+ */
+let escapedFetches = 0
+globalThis.fetch = async (url) => {
+  escapedFetches += 1
+  throw new Error(`离线测试禁止联网，但有人请求了 ${String(url)}`)
+}
+
+// 第二道：全局关掉 v1.1 的探针请求。毒药 fetch 只能"拦住"，这一道让它**根本不发**。
+// 本文件有 6 处端到端测试会调 `execute()`；逐个去改它们的套件 YAML 太脆 ——
+// 以后新增一个 e2e 测试就会悄悄开始联网。开关放在这里，是结构性的保证。
+// 第 14 组要验探针接线，会临时把它撤掉（见那里）。
+process.env.DSH_EVAL_NO_PROBE = '1'
+
 // 桩脚本带 shebang，spawn 直接执行它 —— 需要执行位。
 // 显式 chmod，避免换机器/换 checkout 方式后丢掉权限位。
 for (const s of ['dsh-ok', 'dsh-steps', 'dsh-401', 'dsh-budget', 'dsh-prompt-echo'])
@@ -867,6 +890,14 @@ console.log('\n14. 判定层（纯函数，零 token）')
   )
 
   // — 端到端：判定出现在报告**最顶部** —
+  //
+  // ⚠️ 这一段会真正调用 `execute()`，而 v1.1 起 `execute()` 内含**探针请求**
+  // （会发真 HTTP）。所以必须先把 `globalThis.fetch` 顶掉：
+  //   · 否则"离线测试零联网"这个承诺就是假的；
+  //   · 更糟的是，本文件前面 `loadRunner` 设了 `DEEPSEEK_API_KEY=sk-offline-stub`，
+  //     密钥字段非空 → 探针会照跑。此时若机器上恰好有可用密钥，**会真的花钱**。
+  //
+  // 顶掉之后顺带把探针接线也验了：跑通 / 关闭两条路径都测。
   const { apply } = await import(`${ROOT}/dist/index.js`)
   const dir = mkdtempSync(join(tmpdir(), 'dsh-verdict-e2e-'))
   const backend = (role, model) => [
@@ -876,11 +907,11 @@ console.log('\n14. 判定层（纯函数，零 token）')
     `    model: ${model}`,
     `    apiKeyEnv: DEEPSEEK_API_KEY`,
   ].join('\n')
-  writeFileSync(
-    join(dir, 'v.yml'),
+  const yml = (extra = []) =>
     [
       'name: "判定层端到端"',
       'budgetCNY: 100',
+      ...extra,
       'historicalCost:',
       '  baselineRangeUSD: [0.0016, 0.0021]',
       '  candidateRangeUSD: [0.00046, 0.0006]',
@@ -896,26 +927,93 @@ console.log('\n14. 判定层（纯函数，零 token）')
       '      - type: output_contains',
       '        text: "Harness"',
       '',
-    ].join('\n'),
+    ].join('\n')
+  writeFileSync(join(dir, 'v.yml'), yml())
+  writeFileSync(
+    join(dir, 'v-noprobe.yml'),
+    yml(['compatibility:', '  probe_cache_control: false']),
   )
-  let t
-  apply({ tools: { register: (x) => { t = x }, get: () => t } }, { suiteDir: dir })
-  const out = await t.execute({ suite: 'v' })
-  check('端到端：判定渲染在报告最顶部', out.report.startsWith('🎯 迁移判定：'), out.report.slice(0, 40))
-  check(
-    '端到端：真实配置（system pass / cache_control 未检测）→ 有条件迁移',
-    out.report.includes('🎯 迁移判定：⚠️ 有条件迁移'),
-    out.report.split('\n')[0],
-  )
-  check(
-    '端到端：风险清单在判定下方、对比表上方',
-    out.report.indexOf('风险清单：') < out.report.indexOf('📊 双后端评测对比'),
-  )
-  check(
-    '端到端：historicalCost 从 YAML 读到了判定层（输出 n=9 / 3 个批次）',
-    out.report.includes('n=9，3 个批次'),
-    out.report.match(/成本门：.*/)?.[0],
-  )
+
+  const realFetch = globalThis.fetch
+  let probeCalls = 0
+  globalThis.fetch = async (_url, init) => {
+    probeCalls += 1
+    const marked = JSON.stringify(JSON.parse(init.body).system).includes('cache_control')
+    // 带标记分支命中、对照分支不命中 → 探针会判"标记是缓存生效的必要条件"。
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        usage: {
+          input_tokens: 10,
+          output_tokens: 1,
+          cache_read_input_tokens: marked ? 1200 : 0,
+          cache_creation_input_tokens: 0,
+        },
+      }),
+      text: async () => '',
+    }
+  }
+
+  try {
+    // 本组要验探针接线，所以临时撤掉全局应急开关（finally 里恢复）。
+    delete process.env.DSH_EVAL_NO_PROBE
+
+    let t
+    apply({ tools: { register: (x) => { t = x }, get: () => t } }, { suiteDir: dir })
+
+    const t0 = Date.now()
+    const out = await t.execute({ suite: 'v' })
+    const elapsed = Date.now() - t0
+
+    check('端到端：判定渲染在报告最顶部', out.report.startsWith('🎯 迁移判定：'), out.report.slice(0, 40))
+    check(
+      '端到端：探针跑通（标记生效）→ 可迁移',
+      out.report.includes('🎯 迁移判定：✅ 可迁移'),
+      out.report.split('\n')[0],
+    )
+    check('端到端：探针恰好发出 4 个请求（两分支 × 冷热）', probeCalls === 4, String(probeCalls))
+    // 锁住冷热之间的等待。真实端点把缓存写进去到读得到之间有延迟，
+    // 紧贴着发第二次会读到 cache_read=0 而缓存其实是好的（实测 deepseek-v4-pro）。
+    // 这条断言只在生产接线（execute→probeCacheControl，不注入 settleMs）上才有意义，
+    // 所以放在本组。下界判定，机器慢不会误报。
+    check(
+      '端到端：探针在冷热之间等待（默认 settleMs 已接线，未注入时不会退化成 0）',
+      elapsed >= 1900,
+      `耗时 ${elapsed}ms，应 ≥1900ms（默认 settleMs=2000）`,
+    )
+    check(
+      '端到端：报告里带上了探针的实测结论（不再停在"未检测"）',
+      out.report.includes('必要条件') && !out.report.includes('cache_control 使用    ⚠️'),
+      out.report.split('\n').find((l) => l.includes('cache_control')),
+    )
+    check(
+      '端到端：风险清单在判定下方、对比表上方',
+      out.report.indexOf('风险清单：') < out.report.indexOf('📊 双后端评测对比'),
+    )
+    check(
+      '端到端：historicalCost 从 YAML 读到了判定层（输出 n=9 / 3 个批次）',
+      out.report.includes('n=9，3 个批次'),
+      out.report.match(/成本门：.*/)?.[0],
+    )
+
+    // 关掉探针 → 退回静态的「未检测」→ 最多「有条件迁移」，且**一个请求都不发**。
+    probeCalls = 0
+    const out2 = await t.execute({ suite: 'v-noprobe' })
+    check(
+      '端到端：关掉探针 → 退回「有条件迁移」（未检测 ≠ 通过）',
+      out2.report.includes('🎯 迁移判定：⚠️ 有条件迁移'),
+      out2.report.split('\n')[0],
+    )
+    check(
+      '端到端：关掉探针 → 零请求（这是离线测试不花钱的兜底保证）',
+      probeCalls === 0,
+      String(probeCalls),
+    )
+  } finally {
+    globalThis.fetch = realFetch
+    process.env.DSH_EVAL_NO_PROBE = '1'
+  }
 }
 
 // ── 15. prompt 里的 {suiteRoot} 占位符 ─────────────────────────────────────
@@ -975,7 +1073,193 @@ console.log('\n15. 套件可移植性：{suiteRoot} 由插件填成本包安装�
   check('替换结果指向真实存在的脚本', existsSync(script), script)
 }
 
+// ── 16. cache_control 探针请求（v1.1） ────────────────────────────────────
+console.log('\n16. cache_control 探针请求（桩 fetch，零联网）')
+{
+  const { probeCacheControl } = await import(`${ROOT}/dist/cache-probe.js`)
+  const { replaceCompatResult, runCompatibilityChecks } = await import(
+    `${ROOT}/dist/compatibility-check.js`
+  )
+  const { judge } = await import(`${ROOT}/dist/verdict.js`)
+
+  const ROUTE = {
+    name: 'deepseek-flash',
+    api: 'anthropic-messages',
+    baseUrl: 'https://api.deepseek.com/anthropic',
+    model: 'deepseek-flash',
+  }
+
+  /** 2xx 响应。只实现探针真正读的三个成员：ok / status / json / text。 */
+  const ok = (cacheRead, cacheWrite = 0) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      usage: {
+        input_tokens: 10,
+        output_tokens: 1,
+        cache_read_input_tokens: cacheRead,
+        cache_creation_input_tokens: cacheWrite,
+      },
+    }),
+    text: async () => '',
+  })
+  const httpErr = (status, body = '') => ({ ok: false, status, text: async () => body })
+  const noUsage = () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' })
+
+  /**
+   * 记录调用的桩 fetch。
+   *
+   * 两条分支是**并行**跑的，所以到达顺序不确定 —— 按「请求体里有没有 cache_control」
+   * 分流，再数各自是该分支的第几次。`handler(marked, nthOfArm)` 返回响应。
+   */
+  function stub(handler) {
+    const calls = []
+    const fn = async (url, init) => {
+      const body = JSON.parse(init.body)
+      const marked = JSON.stringify(body.system).includes('cache_control')
+      calls.push({ url, init, body, marked })
+      return handler(marked, calls.filter((c) => c.marked === marked).length - 1)
+    }
+    fn.calls = calls
+    return fn
+  }
+
+  // ① 标记生效：带标记分支第 2 次命中，对照分支两次都不命中。
+  const f1 = stub((marked, nth) => (marked ? ok(nth === 0 ? 0 : 1500, nth === 0 ? 1200 : 0) : ok(0)))
+  const r1 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f1, prefixChars: 200, settleMs: 0 })
+  check('① 标记生效 → pass', r1.status === 'pass', r1.status)
+  check(
+    '① detail 说明标记是必要条件（含实测数字）',
+    r1.detail.includes('必要条件') && r1.detail.includes('cache_read=1500'),
+    r1.detail,
+  )
+
+  // 请求形状必须复刻 harness —— 否则验的不是同一个东西。
+  {
+    const [a, b] = f1.calls.filter((c) => c.marked)
+    const plain = f1.calls.filter((c) => !c.marked)
+    check(
+      '① 打到 <baseUrl>/v1/messages',
+      f1.calls.every((c) => c.url === 'https://api.deepseek.com/anthropic/v1/messages'),
+      f1.calls[0]?.url,
+    )
+    check(
+      '① 鉴权用 x-api-key（不是 Bearer）',
+      f1.calls.every((c) => c.init.headers['x-api-key'] === 'sk-test'),
+      JSON.stringify(f1.calls[0]?.init.headers),
+    )
+    check(
+      '① system 是内容块数组，cache_control 只挂在带标记分支的系统块上',
+      Array.isArray(a?.body.system) &&
+        a.body.system[0].cache_control.type === 'ephemeral' &&
+        plain.length === 2 &&
+        plain.every((c) => c.body.system[0].cache_control === undefined),
+    )
+    check('① 每分支各发两次（冷 + 热）', f1.calls.length === 4 && plain.length === 2)
+    check(
+      '① 两分支前缀不同（对照分支不会蹭到带标记分支的缓存）',
+      a.body.system[0].text !== plain[0].body.system[0].text,
+    )
+    check(
+      '① detail 标注了探针实耗 token（不谎称零 token）',
+      r1.detail.includes('实耗'),
+      r1.detail.slice(-60),
+    )
+  }
+
+  // ② 自动缓存：两个分支第 2 次都命中 → 缓存生效，但**标记不可归因**。
+  const f2 = stub((marked, nth) => ok(nth === 0 ? 0 : 1500, nth === 0 ? 1200 : 0))
+  const r2 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f2, prefixChars: 200, settleMs: 0 })
+  check('② 两边都命中 → 仍判 pass（缓存确实生效）', r2.status === 'pass', r2.status)
+  check(
+    '② 但 detail 明说无法归因给显式标记',
+    r2.detail.includes('自动前缀缓存') && r2.detail.includes('无法归因'),
+    r2.detail,
+  )
+
+  // ③ 端点拒收 cache_control → 正确性问题，一票否决。
+  const f3 = stub((marked) =>
+    marked ? httpErr(400, '{"error":{"message":"cache_control is not supported"}}') : ok(0),
+  )
+  const r3 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f3, prefixChars: 200, settleMs: 0 })
+  check('③ 端点拒收 cache_control → fail', r3.status === 'fail', r3.status)
+  check(
+    '③ detail 带上了端点回的错误正文（可追因）',
+    r3.detail.includes('HTTP 400') && r3.detail.includes('not supported'),
+    r3.detail,
+  )
+
+  // ④ 端点接受但不兑现 → **不能否决**（成本问题），但必须留下 ℹ️ 风险。
+  const f4 = stub(() => ok(0))
+  const r4 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f4, prefixChars: 200, settleMs: 0 })
+  check('④ 接受但不兑现 → pass（成本问题不否决迁移）', r4.status === 'pass', r4.status)
+  check('④ 但带出 infoText 供风险清单使用', typeof r4.infoText === 'string' && r4.infoText.length > 0)
+  {
+    // 走一遍判定层：这一项必须出现在风险清单里，且判定不能被它压成「不可迁移」。
+    const j = judge({
+      quality: { passed: 1, total: 1, failures: [] },
+      compatibility: [r4],
+      cost: null,
+    })
+    check('④ 判定层不被它否决 → 可迁移', j.verdict === '可迁移', j.verdict)
+    check(
+      '④ infoText 确实进了风险清单（ℹ️，不是 ⚠️）',
+      j.risks.some((x) => x.level === 'info' && x.text === r4.infoText),
+      JSON.stringify(j.risks),
+    )
+  }
+
+  // ⑤ 鉴权失败 → 与端点能力无关，不能误判成 fail。
+  const f5 = stub(() => httpErr(401, 'Authentication Fails'))
+  const r5 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f5, prefixChars: 200, settleMs: 0 })
+  check('⑤ 401 → not_checked（不误判为端点拒绝）', r5.status === 'not_checked', r5.status)
+
+  // ⑥ 网络层失败（超时/连不上）→ 同样是 not_checked，且不抛异常。
+  const f6 = stub(() => {
+    throw new Error('The operation was aborted due to timeout')
+  })
+  const r6 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f6, prefixChars: 200, settleMs: 0 })
+  check('⑥ 传输层错误 → not_checked 且不抛异常', r6.status === 'not_checked', r6.status)
+  check('⑥ 原因写进了 detail', r6.detail.includes('未送达'), r6.detail)
+
+  // ⑦ 200 但没有 usage → 读不到计数，**不能当成"计数为 0"**。
+  const f7 = stub(() => noUsage())
+  const r7 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f7, prefixChars: 200, settleMs: 0 })
+  check('⑦ 无 usage 字段 → not_checked（不是 fail）', r7.status === 'not_checked', r7.status)
+
+  // ⑨ 带标记分支命中、但**对照分支读不到 usage** → 只能到"缓存生效"，
+  //    不能声称"标记是必要条件"。这是把"没读到"当成"读到 0"的经典陷阱。
+  const f9 = stub((marked, nth) =>
+    marked ? ok(nth === 0 ? 0 : 1500, nth === 0 ? 1200 : 0) : noUsage(),
+  )
+  const r9 = await probeCacheControl(ROUTE, 'sk-test', { fetchImpl: f9, prefixChars: 200, settleMs: 0 })
+  check('⑨ 对照分支读不到数 → 仍判 pass', r9.status === 'pass', r9.status)
+  check(
+    '⑨ 但不谎称"标记是必要条件"（读不到 ≠ 读到 0）',
+    r9.detail.includes('无法归因') && !r9.detail.includes('必要条件'),
+    r9.detail,
+  )
+
+  // ⑧ 探针结果回填静态报告时必须重新聚合 —— 否则 fail 了整体还是 not_checked。
+  {
+    const before = runCompatibilityChecks(ROUTE, undefined)
+    check('⑧ 静态（未探）时 cache_control 为 not_checked', before.verdict === 'not_checked', before.verdict)
+    const afterPass = replaceCompatResult(before, 'check_cache_control', r4)
+    check('⑧ 填入 pass → 整门转 pass', afterPass.verdict === 'pass', afterPass.verdict)
+    const afterFail = replaceCompatResult(before, 'check_cache_control', r3)
+    check('⑧ 填入 fail → 整门转 fail（一票否决）', afterFail.verdict === 'fail', afterFail.verdict)
+    check(
+      '⑧ 回填只换那一项，另一项原样保留',
+      afterPass.results.length === 2 &&
+        afterPass.results.some((x) => x.key === 'check_system_field_format'),
+    )
+  }
+}
+
 // ── 汇总 ───────────────────────────────────────────────────────────────────
+if (escapedFetches > 0) {
+  failures.push(`离线测试发生了 ${escapedFetches} 次未桩接的网络请求（本应零联网）`)
+}
 console.log('')
 if (failures.length) {
   console.log(`❌ ${failures.length} 项失败：`)

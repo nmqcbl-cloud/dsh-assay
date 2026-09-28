@@ -62,8 +62,19 @@ export interface CompatGateItem {
   /**
    * 风险清单里用的**短**说法。风险清单要挤在报告最顶部，`detail` 那四五行放不下；
    * 缺省时退回用 `detail`。见 `compatibility-check.ts` 的同名字段。
+   *
+   * 只在 `fail` / `not_checked` 时被取用。
    */
   riskText?: string
+  /**
+   * **无论 `status` 是什么都要写进风险清单**的一条 ℹ️ 说明（可选）。
+   *
+   * 给"成本类发现"留的出口：探针可能验出"端点接受 `cache_control` 但不兑现前缀缓存"。
+   * 这不影响请求能否发出，按本文件的论证**不能一票否决**，状态只能是 `pass`；
+   * 但 `pass` 会让它从风险清单里消失，而它确实该被看见。见
+   * `compatibility-check.ts` 的 `infoText`。
+   */
+  infoText?: string
 }
 
 /**
@@ -165,6 +176,12 @@ export function judge(gates: GateResult): Judgement {
         `候选省 ${cost.savingsPercent.toFixed(1)}%；` +
         '单次跑给不出区间，故采信历史数据',
     })
+  }
+
+  // 兼容性门里"状态是 pass、但有话要说"的项（目前只有探针验出的成本类发现）。
+  // 不受状态影响 —— 这正是 `infoText` 存在的理由，见 `CompatGateItem` 的注释。
+  for (const c of compatibility) {
+    if (c.infoText !== undefined) risks.push({ level: 'info', text: c.infoText })
   }
 
   if (compatUnchecked.length > 0) {

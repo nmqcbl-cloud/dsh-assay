@@ -75,7 +75,7 @@ cd /Users/mac/dsh-agent-eval
 # 1. 构建通过
 pnpm build
 
-# 2. 离线回归全绿（15 组 124 项断言）
+# 2. 离线回归全绿（16 组 152 项断言）
 pnpm test:offline
 
 # 3. 打包内容正确 —— 这是最重要的一步
@@ -121,12 +121,19 @@ pnpm publish       # 用 pnpm 保证 prepublishOnly 里的 pnpm 命令可用
 # 或： npm publish
 ```
 
-**发布后立刻回填 git tag**（`CHANGELOG.md` 末尾的链接指向 `v1.0.0`）：
+> **关于版本号**：本包当前是 **1.1.0**，而 **1.0.0 从未发布过**
+> （发布被网络问题挡住，随后就加上了 v1.1 的探针请求）。
+> 也就是说 **1.1.0 将是 npm 上的首个版本**，没有 1.0.0 可供对比。
+> 这不是问题，但发布后别去 `npm view ... versions` 里找 1.0.0 —— 它不存在。
+>
+> 你**本地**有一个指向更早提交的 `v1.0.0` tag，不要把它推上去（会指向没有探针的代码）。
+
+**发布后立刻回填 git tag**（`CHANGELOG.md` 末尾的链接指向 `v1.1.0`）：
 
 ```bash
 git add -A
-git commit -m "release: v1.0.0"
-git tag -a v1.0.0 -m "v1.0.0 — 首个正式版本"
+git commit -m "release: v1.1.0"
+git tag -a v1.1.0 -m "v1.1.0 — 首个正式版本"
 ```
 
 > **不要 `npm publish` 之后再改源码再重发同一版本号** —— npm 不允许覆盖已发布版本。
@@ -157,7 +164,7 @@ git branch -M main
 git push -u origin main
 
 # 3. 推送 tag
-git push origin v1.0.0
+git push origin v1.1.0
 ```
 
 **确认 `.gitignore` 生效**（仓库里不应出现 `node_modules/`、`dist/`）：
@@ -212,7 +219,7 @@ git ls-files | grep -E "node_modules|^dist/" | head    # 应无输出
 ```bash
 # 1. 包已上架、元数据正确
 npm view dsh-migration-eval
-npm view dsh-migration-eval version        # 1.0.0
+npm view dsh-migration-eval version        # 1.1.0
 npm view dsh-migration-eval keywords
 npm view dsh-migration-eval license        # MIT
 npm view dsh-migration-eval dist.tarball   # 可下载
@@ -220,7 +227,7 @@ npm view dsh-migration-eval dist.tarball   # 可下载
 # 2. 从 registry 装一次，确认内容完整（用一个干净目录，别污染本仓库）
 mkdir -p /tmp/npm-smoke && cd /tmp/npm-smoke
 npm pack dsh-migration-eval
-tar tzf dsh-migration-eval-1.0.0.tgz | head -30
+tar tzf dsh-migration-eval-1.1.0.tgz | head -30
 # 应看到 package/dist/、package/suites/、package/cordis.patch.yml、package/README.md
 
 # 3. 装进 dsh profile（这一步会真正验证插件能跑）
@@ -242,6 +249,33 @@ dsh --profile <该 profile> headless --json \
 **第 4 步是唯一能同时验证「npm 包完整」+「插件真能跑」的检查**，
 因为 `suites/` 是运行时从包内读取的 —— 如果打包漏了 `suites/`，
 前 3 步全过，第 4 步才会暴露。
+
+> ⚠️ **第 4 步 v1.1 起会多花几个 token、多花约 2–5 秒。** `execute()` 里现在有
+> `cache_control` 探针：它会向候选端点真发 **4 个请求**（每次前缀约 2.5k token），
+> 且冷热两次之间**必须等 2 秒**（端点的缓存写入到可见有延迟，不能省）。
+> `01-single-step` 的判定仍是 `➖ 不判定`（烟雾测试不进判定），
+> 但报告里 `cache_control 使用` 那一行会从 `⚠️ 未检测` 变成 `✅ 通过` / `❌ 失败`。
+> 想一分钱不花地验打包完整性，加 `DSH_EVAL_NO_PROBE=1` 跑：
+>
+> ```bash
+> DSH_EVAL_NO_PROBE=1 dsh --profile <该 profile> headless --json "只调用 eval_run_dual, ..."
+> ```
+>
+> 此时那一行会退回 `⚠️ 未检测`，且不再有那 2 秒等待 —— **这恰好也是验证"开关真的生效"的机会**。
+>
+> **已实测的正确输出长什么样**（2026-09-29，`eval-runner` profile）：
+>
+> ```
+>   cache_control 使用    ✅ 通过
+>     ↳ 端点兑现了前缀缓存。带标记分支：第 1 次 cache_write=0 / cache_read=0，
+>       第 2 次（同一前缀）cache_read=2304；但**对照分支（不发 cache_control）
+>       第 2 次也命中**（cache_read=2304）—— 说明该端点有自动前缀缓存，
+>       命中无法归因给显式标记。……
+> ──────────────────────────────────────────────
+> ✅ 兼容性门全部已检测且通过
+> ```
+>
+> **`✅ 兼容性门全部已检测且通过` 这一行是判断打包+接线都对的最快信号。**
 
 ---
 
@@ -272,7 +306,7 @@ pnpm build && pnpm test:offline && npm pack --dry-run
 
 # ③ 建仓（仓库名 dsh-assay）
 gh repo create dsh-assay --public --source=. --remote=origin --push
-git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0
+git tag -a v1.1.0 -m "v1.1.0" && git push origin v1.1.0
 
 # ④ 发布
 npm login && pnpm publish

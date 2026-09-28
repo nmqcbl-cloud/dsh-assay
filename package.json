@@ -1,6 +1,6 @@
 {
   "name": "dsh-migration-eval",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "双后端对比评测插件，用「批内对比」回答模型迁移的接受门问题 | Dual-backend comparison evaluation for DeepSeek Harness — a migration acceptance gate",
   "license": "MIT",
   "type": "module",

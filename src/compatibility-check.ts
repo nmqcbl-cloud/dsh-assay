@@ -52,8 +52,20 @@ export interface CompatibilityResult {
    * `detail` 是给兼容性门那一段的完整解释（含依据、旁证、下一步），四五行；
    * 判定层的风险清单要把同样的内容挤进报告最顶部，必须是一句话。
    * 缺省时判定层退回用 `detail`。
+   *
+   * 只在 `fail` / `not_checked` 时被判定层取用 —— 那两种状态本来就要进风险清单。
    */
   riskText?: string
+  /**
+   * **无论 `status` 是什么都要进风险清单**的一条 ℹ️ 说明（可选）。
+   *
+   * 存在的理由是「成本类发现」这个夹缝：探针（`cache-probe.ts`）可能验出
+   * "端点接受 `cache_control` 但不兑现前缀缓存"。这**不影响请求能否发出**，
+   * 所以按本仓库的口径它不能一票否决（把成本写进否决是范畴错误，见 `verdict.ts`），
+   * 状态只能给 `pass`；可它又确实是个该被看见的问题 —— `pass` 会让它从
+   * 风险清单里消失。`infoText` 就是给这种情况留的**不受状态影响的**出口。
+   */
+  infoText?: string
 }
 
 /** 兼容性门的整体结论。 */
@@ -88,6 +100,16 @@ export interface CompatRoute {
 export interface CompatibilityConfig {
   check_system_field_format?: boolean
   check_cache_control?: boolean
+  /**
+   * 是否为 `cache_control` 一项跑**探针请求**（v1.1）。默认开。
+   *
+   * 这是本插件里**唯一会额外花钱**的开关：探针真发 4 个请求（约 2.5k token 前缀 × 4），
+   * 实耗会写进报告里那一项的 `detail`。关掉它就退回静态的 `not_checked`
+   * —— 省下几个 token，代价是判定出不了「可迁移」。
+   *
+   * `check_cache_control: false` 时本开关无意义：那一项已经不检查了，自然不探。
+   */
+  probe_cache_control?: boolean
 }
 
 /**
@@ -210,30 +232,62 @@ export function checkCacheControlUsage(
       '旁证（不等于判定，且自身就不稳定）：多批次连续运行时输入 token 的 94–99% 按命中价计费，' +
       '而一次相隔数小时的孤立运行是 **0% 命中**（成本恰好等于全价）—— 缓存会过期，冷启动必然全价。' +
       '另：DeepSeek 本身有自动前缀缓存，无法把功劳归给显式标记。' +
-      '`cache_control` 的真实效力因此只能靠 v1.1 的探针请求验。',
+      '**本次未取得探针结论**（未提供该后端的密钥、套件关闭了本项探针，' +
+      '或设了 `DSH_EVAL_NO_PROBE=1`），' +
+      '所以仍按"没查"记 —— 这不是"查过了没问题"。' +
+      '能验它的只有探针：见 `src/cache-probe.ts`（会真发 4 个请求，非零 token）。',
     riskText:
-      '静态检查无法判定端点是否兑现，需 v1.1 探针请求（实测缓存命中率在 0%–99% 间波动）',
+      '静态检查无法判定端点是否兑现，且本次未跑探针（未提供密钥或已关闭本项）',
   }
 }
 
 /**
- * 跑完两个检查项，聚合成兼容性门结论。
+ * 把若干检查项聚合成兼容性门结论。
  *
  * 聚合规则（与接受门一致）：
  *   - 任一 `fail` → `fail`（一票否决）
  *   - 否则任一 `not_checked` → `not_checked`（最多只能判「有条件迁移」）
  *   - 否则 → `pass`
+ *
+ * 单独导出，是因为 `cache-probe.ts` 会**回填**其中一项（把静态的 `not_checked`
+ * 换成探针实测的结论），换完必须重新聚合一次 —— 两处用同一份规则，不能各写一遍。
+ */
+export function aggregateCompat(results: CompatibilityResult[]): CompatibilityReport {
+  const failed = results.filter((r) => r.status === 'fail').map((r) => r.name)
+  const unchecked = results.filter((r) => r.status === 'not_checked').map((r) => r.name)
+  const verdict = failed.length > 0 ? 'fail' : unchecked.length > 0 ? 'not_checked' : 'pass'
+  return { results, verdict, unchecked, failed }
+}
+
+/**
+ * 用一项新结果替换报告里的同 `key` 项，并重新聚合。
+ *
+ * 探针结果的落点：静态检查先跑（零 token、不发请求，缺 key 时也有内容），
+ * 拿到 key 后再用探针的结论盖掉 `check_cache_control` 那一项。
+ * 找不到该 `key` 时原样返回 —— 替换目标不存在不该把整趟评测搞崩。
+ */
+export function replaceCompatResult(
+  report: CompatibilityReport,
+  key: string,
+  next: CompatibilityResult
+): CompatibilityReport {
+  if (!report.results.some((r) => r.key === key)) return report
+  return aggregateCompat(report.results.map((r) => (r.key === key ? next : r)))
+}
+
+/**
+ * 跑完两个检查项，聚合成兼容性门结论。
+ *
+ * **本函数是同步的、零 token 的**。`check_cache_control` 在这里恒为 `not_checked`；
+ * 要把它变成实测结论，得由调用方在拿到密钥后再跑 `probeCacheControl()`
+ * （见 `cache-probe.ts`）并用 `replaceCompatResult()` 回填。
  */
 export function runCompatibilityChecks(
   route: CompatRoute,
   cfg: CompatibilityConfig | undefined
 ): CompatibilityReport {
-  const results = [
+  return aggregateCompat([
     checkSystemFieldFormat(route, cfg?.check_system_field_format !== false),
     checkCacheControlUsage(route, cfg?.check_cache_control !== false),
-  ]
-  const failed = results.filter((r) => r.status === 'fail').map((r) => r.name)
-  const unchecked = results.filter((r) => r.status === 'not_checked').map((r) => r.name)
-  const verdict = failed.length > 0 ? 'fail' : unchecked.length > 0 ? 'not_checked' : 'pass'
-  return { results, verdict, unchecked, failed }
+  ])
 }

@@ -25,7 +25,8 @@ import { load } from 'js-yaml'
 import { runOneBackend } from './eval-runner.js'
 import type { SuiteYaml } from './eval-runner.js'
 import { generateComparison, isSkipped, renderReport, SKIPPED_PREFIX } from './compare-reporter.js'
-import { runCompatibilityChecks } from './compatibility-check.js'
+import { replaceCompatResult, runCompatibilityChecks } from './compatibility-check.js'
+import { probeCacheControl } from './cache-probe.js'
 import { judge } from './verdict.js'
 import { ROUTE_API } from './model-router.js'
 import { USD_TO_CNY } from './pricing.js'
@@ -107,15 +108,45 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG) {
         // 判的是 **candidate**（迁移目标）：迁移要回答的是"换过去行不行"，
         // baseline 是既成事实，它的兼容性不是本次要判的东西。
         const cand = yaml.backends.candidate
-        const compatibility = runCompatibilityChecks(
-          {
-            name: cand.displayName ?? cand.id,
-            api: ROUTE_API,
-            baseUrl: cand.baseUrl,
-            model: cand.model,
-          },
-          yaml.compatibility
-        )
+        const candRoute = {
+          name: cand.displayName ?? cand.id,
+          api: ROUTE_API,
+          baseUrl: cand.baseUrl,
+          model: cand.model,
+        }
+        let compatibility = runCompatibilityChecks(candRoute, yaml.compatibility)
+
+        // 探针请求（v1.1）：静态检查判不了 `cache_control` 是否被端点兑现，
+        // 只有真发一次请求才能验。**这是本插件里唯一会额外花钱的地方**
+        // （4 个请求，约 2.5k token 前缀），实耗会写进那一项的 detail 里。
+        //
+        // 只探 candidate：迁移要回答的是"换过去行不行"，baseline 是既成事实。
+        //
+        // 三种情况不探，退回静态的 `not_checked`（= "没查"，不是"没问题"）：
+        //   1. 套件关了本项检查或显式关了探针；
+        //   2. 该后端的密钥没注入 —— 与 `runOneBackend` 同样的优雅降级；
+        //   3. 探针自己跑失败（超时/网络/鉴权）—— 由 `probeCacheControl` 内部
+        //      兜成 `not_checked` 并把原因写进 detail，**不抛异常、不误判否决**。
+        const candKey = process.env[cand.apiKeyEnv] ?? ''
+        // `DSH_EVAL_NO_PROBE=1` 是**全局应急开关**：离线回归与 CI 靠它保证
+        // "跑多少遍都不花钱"，而不必逐个套件去改 YAML（那样新增的测试迟早会漏）。
+        // 在**调用点**读而不是模块加载时读成常量 —— 否则测试没法在同一进程里
+        // 先关后开。
+        //
+        // 它只会让判定**更保守**（退回 `not_checked`，绝不多报"通过"），
+        // 所以被误留在一个人的 shell 里也不会产生假阳性。
+        if (
+          process.env.DSH_EVAL_NO_PROBE !== '1' &&
+          yaml.compatibility?.check_cache_control !== false &&
+          yaml.compatibility?.probe_cache_control !== false &&
+          candKey !== ''
+        ) {
+          compatibility = replaceCompatResult(
+            compatibility,
+            'check_cache_control',
+            await probeCacheControl(candRoute, candKey),
+          )
+        }
 
         // 预算上限是套件级属性，放在 YAML 顶层，语义是**整趟**（两个后端共享一个池子）。
         // `runOneBackend` 的第三个参数语义不变 —— 它始终是「这个后端最多花多少」，
