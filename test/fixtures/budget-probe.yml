@@ -1,0 +1,40 @@
+# 离线测试专用套件：验证「整趟预算池」的余额分发。**不要拿它去真跑。**
+#
+# 配套桩：test/stubs/dsh-budget（用量固定 1000 未命中输入 + 1000 输出）。
+# 计价钉死在谷时（测试里用 DSH_EVAL_CN_HOLIDAYS 把"今天"塞进节假日表），于是：
+#   baseline  deepseek-v4-pro → 1000×0.66 + 1000×1.98 = $0.002640
+#   candidate deepseek-flash  → 1000×0.15 + 1000×0.60 = $0.000750
+#
+# budgetCNY 落在 (baseline, baseline+candidate) 这个窗口里：
+#   ¥0.0214 = $0.0030141
+#   ├─ 池子够 baseline 花完（0.002640 < 0.0030141，余 1.14×）
+#   ├─ 余额不够 candidate 起步（0.0003741 < 0.000750）
+#   └─ 但"总额"够 candidate 跑完（0.0030141 > 0.000750，余 4.0×）
+#
+# 最后一条是关键：如果 execute 误把**总额**当**余额**传给第二个后端，
+# candidate 就能跑完，第 9 组的断言会失败。没有这一条，测试就没有鉴别力。
+budgetCNY: 0.0214
+
+timeoutSec: 120
+
+backends:
+  baseline:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+  candidate:
+    id: deepseek-flash
+    displayName: DeepSeek V4 Flash
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-flash
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+steps:
+  - prompt: "用一句话解释什么是 Agent Harness"
+    assert:
+      - type: output_contains
+        text: "Harness"
+      - type: max_steps
+        value: 5

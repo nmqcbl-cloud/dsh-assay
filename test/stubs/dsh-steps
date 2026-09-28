@@ -1,0 +1,9 @@
+#!/bin/sh
+# 桩 dsh：步数超限 + 输出不含断言词。套件里 max_steps 是 5，这里给 6 步。
+echo '{"type":"status","phase":"turn_start","turn":1}'
+for i in 1 2 3 4 5 6; do
+  echo "{\"type\":\"status\",\"phase\":\"step_end\",\"turn\":1,\"step\":$i,\"usage\":{\"inputTokens\":100,\"outputTokens\":10,\"cacheReadTokens\":1000,\"cacheWriteTokens\":0,\"totalTokens\":1110}}"
+done
+echo '{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}'
+echo '{"type":"final","text":"跑完了。"}'
+exit 0

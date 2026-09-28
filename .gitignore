@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# 波动测试的原始 NDJSON 留在 /tmp，永不入库。
+# 只有汇总后的 /tmp/variance-*/summary.txt 会被复制进 docs/ 再提交。

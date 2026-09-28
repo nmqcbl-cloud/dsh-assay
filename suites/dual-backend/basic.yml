@@ -1,0 +1,35 @@
+name: "DeepSeek 双模型对比：v4-pro vs flash"
+
+# 预算上限（人民币），语义是**整趟**：两个后端共享这一个池子，不是各自一份。
+# baseline 先跑，花掉的钱从池子里扣，剩下的才是 candidate 的额度；池子见底时
+# 后端会在下一个 step_end 处被 SIGTERM 中断并记入 failedCases。
+# 不填则用代码里的默认值 ¥1（见 src/index.ts 的 DEFAULT_BUDGET_CNY）。
+# 想取消上限就写一个足够大的数。
+budgetCNY: 1
+
+# 单个 step 的超时秒数。默认 120。
+timeoutSec: 120
+
+# Claude 侧暂缺：本机没有可用的 Anthropic 凭证（环境里只有指向 DeepSeek 的会话 token）。
+# 拿到 Anthropic key 后把 baseline 改回 claude 即可，插件代码无需改动。
+backends:
+  baseline:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+  candidate:
+    id: deepseek-flash
+    displayName: DeepSeek V4 Flash
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-flash
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+steps:
+  - prompt: "用一句话解释什么是 Agent Harness"
+    assert:
+      - type: output_contains
+        text: "Harness"
+      - type: max_steps
+        value: 5

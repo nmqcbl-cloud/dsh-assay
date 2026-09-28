@@ -1,0 +1,8 @@
+#!/bin/sh
+# 桩 dsh：鉴权失败。形状照抄真实 401 —— 关键点是**失败细节挂在
+# turn_end.reason.error.message 上，没有顶层 {"type":"error"} 事件**。
+echo '{"type":"status","phase":"turn_start","turn":1}'
+echo '{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":0,"outputTokens":0,"totalTokens":0}}'
+echo '{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"401 Authentication Fails, Your api key: ****robe is invalid (request_id: stub)","code":"AUTH"}}}'
+echo '{"type":"final","text":""}'
+exit 1

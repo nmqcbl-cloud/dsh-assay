@@ -1,0 +1,13 @@
+#!/bin/sh
+# 桩 dsh：成功路径。事件形状照抄真实 headless --json 输出。
+# 特意混入一行非 JSON（插件自己的 console.log 也会这样混进 stdout）。
+cat <<'NDJSON'
+{"type":"session","sessionId":"session-stub-ok","cwd":"/tmp"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+[dsh-agent-eval] registered "eval_run_dual" — 这行是插件噪声，解析时必须跳过
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":254,"outputTokens":62,"cacheReadTokens":5248,"cacheWriteTokens":0,"totalTokens":5564}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"Agent Harness 是驱动 agent 反复调用工具直到任务完成的骨架。"}
+NDJSON
+exit 0
