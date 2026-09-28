@@ -1,5 +1,6 @@
 import { USD_TO_CNY } from './pricing.js'
 import type { WorkspaceSnapshots } from './workspace-snapshot.js'
+import type { CompatibilityReport } from './compatibility-check.js'
 
 export interface SuiteResult {
   backendId: string
@@ -27,6 +28,11 @@ export interface DualBackendReport {
    * 一趟评测的组织方式，两者不该混在一起。
    */
   snapshots?: WorkspaceSnapshots
+  /**
+   * 兼容性门（可选）。与快照同理，挂在**报告**层而不是 `SuiteResult` 上 ——
+   * 它描述的是一趟迁移的可行性，不是某个后端跑出来的结果。
+   */
+  compatibility?: CompatibilityReport
 }
 
 /**
@@ -68,6 +74,20 @@ export function generateComparison(
       bTokens > 0 ? ((cTokens - bTokens) / bTokens) * 100 : 0,
     regressedCases,
   }
+}
+
+/**
+ * 按**显示宽度**补齐：CJK 字符占两列，ASCII 占一列。
+ *
+ * 报告是给人看的终端文本，列歪了会串行。只在兼容性门那一段用 —— 上面那张
+ * 指标表用的是 `padEnd`（历史写法，列名固定、不会变），不动它以免改动面外溢。
+ */
+function padDisplay(s: string, width: number): string {
+  const WIDE =
+    /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹯＀-｠￠-￦]/
+  let w = 0
+  for (const ch of s) w += WIDE.test(ch) ? 2 : 1
+  return s + ' '.repeat(Math.max(0, width - w))
 }
 
 export function renderReport(report: DualBackendReport): string {
@@ -156,6 +176,35 @@ export function renderReport(report: DualBackendReport): string {
         .find((c) => c.startsWith(SKIPPED_PREFIX))
         ?.slice(SKIPPED_PREFIX.length)
       lines.push(`⚠️ ${side.backendId} 未配置（${envName} 为空），已跳过`)
+    }
+  }
+
+  // 兼容性门。放在对比表之后、快照之前 —— 它是**一票否决**的结论，比快照路径重要。
+  const compat = report.compatibility
+  if (compat) {
+    lines.push('')
+    lines.push('🔒 兼容性门')
+    lines.push(sep)
+    // 三态的图标与措辞都不同，**不能只靠颜色区分**（纯文本报告里没有颜色）。
+    // `not_checked` 一律用 ⚠️ + "未检测"："我们没查"和"查过了没问题"必须一眼分得开。
+    const ICON = { pass: '✅', fail: '❌', not_checked: '⚠️' } as const
+    const LABEL = { pass: '通过', fail: '失败', not_checked: '未检测' } as const
+    for (const r of compat.results) {
+      // 用显示宽度补齐而不是 `padEnd` —— 检查项名是中文，一个汉字占两列，
+      // 按码元补会把状态列推歪两格，读起来会串行。
+      lines.push(`  ${padDisplay(r.name, 22)}${ICON[r.status]} ${LABEL[r.status]}`)
+      lines.push(`    ↳ ${r.detail}`)
+    }
+    lines.push(dash)
+    if (compat.verdict === 'fail') {
+      lines.push(`❌ 兼容性门不通过 → 本趟判定「不可迁移」（一票否决，与质量门/成本门无关）`)
+      lines.push(`   失败项：${compat.failed.join('、')}`)
+    } else if (compat.verdict === 'not_checked') {
+      lines.push(`⚠️ 存在未检测项 → 本趟最多判定「有条件迁移」`)
+      lines.push(`   未检测项：${compat.unchecked.join('、')}`)
+      lines.push('   （"未检测"不等于"通过"——静态检查判不了运行时行为）')
+    } else {
+      lines.push('✅ 兼容性门全部已检测且通过')
     }
   }
 

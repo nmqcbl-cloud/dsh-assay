@@ -545,6 +545,215 @@ console.log('\n12. 产物断言端到端：workspace 真的从 YAML 传到了断
   check('未出现「未声明 workspace」', !out.report.includes('未声明 workspace'))
 }
 
+// ── 13. 兼容性门 ───────────────────────────────────────────────────────────
+// 纯静态检查，**零 token**：只读套件 YAML + 已核实的协议事实，不发任何请求。
+// 所以这一组连桩都不需要挑 —— 兼容性段在跑任何后端**之前**就算好了。
+console.log('\n13. 兼容性门（静态检查，零 token）')
+{
+  const { checkSystemFieldFormat, checkCacheControlUsage, runCompatibilityChecks } =
+    await import(`${ROOT}/dist/compatibility-check.js`)
+  const { ROUTE_API } = await import(`${ROOT}/dist/model-router.js`)
+
+  const route = (over) => ({
+    name: 'candidate',
+    api: ROUTE_API,
+    baseUrl: 'https://api.deepseek.com/anthropic',
+    model: 'deepseek-flash',
+    ...over,
+  })
+
+  // — 13.1 检查项一：四种输入 —
+  check(
+    'system 字段：Anthropic 端点 + 开启 → pass',
+    checkSystemFieldFormat(route(), true).status === 'pass',
+    checkSystemFieldFormat(route(), true).detail,
+  )
+  check(
+    'system 字段：非 Anthropic 端点 → fail（Anthropic 形状发往非 Anthropic 端点）',
+    checkSystemFieldFormat(route({ baseUrl: 'https://api.deepseek.com/v1' }), true).status === 'fail',
+    checkSystemFieldFormat(route({ baseUrl: 'https://api.deepseek.com/v1' }), true).detail,
+  )
+  check(
+    'system 字段：协议不是 anthropic-messages → fail',
+    checkSystemFieldFormat(route({ api: 'openai-completions' }), true).status === 'fail',
+  )
+  check(
+    'system 字段：显式关闭 → not_checked（**不是** pass）',
+    checkSystemFieldFormat(route(), false).status === 'not_checked',
+    checkSystemFieldFormat(route(), false).status,
+  )
+
+  // — 13.2 检查项二：设计约束是「永不 pass」 —
+  // 这条断言是在**锁定设计意图**：cache_control 由 harness 运行时必发、
+  // 配置文件里扫不到，端点是否兑现只有探针请求能验（v1.1）。所以静态侧
+  // 只能给 not_checked。哪天有人把它改成 unconditionally pass，这里会红。
+  for (const [label, r] of [
+    ['开启', checkCacheControlUsage(route(), true)],
+    ['关闭', checkCacheControlUsage(route(), false)],
+    ['非 anthropic 协议', checkCacheControlUsage(route({ api: 'openai-completions' }), true)],
+  ]) {
+    check(
+      `cache_control：${label} → not_checked，绝不 pass`,
+      r.status === 'not_checked',
+      `${r.status} — ${r.detail}`,
+    )
+  }
+  check(
+    'cache_control：关闭时的 detail 说清了是「关闭」而非「没风险」',
+    checkCacheControlUsage(route(), false).detail.includes('关闭'),
+    checkCacheControlUsage(route(), false).detail,
+  )
+  // 旁证必须**带上下界**：只写"命中率高"会让人以为缓存总是有效。
+  // 实测既有 94–99% 命中的批次，也有相隔数小时后 0% 命中的孤立运行。
+  check(
+    'cache_control：开启时带上实测旁证，且写明它自身不稳定',
+    checkCacheControlUsage(route(), true).detail.includes('94–99%') &&
+      checkCacheControlUsage(route(), true).detail.includes('0% 命中'),
+    checkCacheControlUsage(route(), true).detail,
+  )
+
+  // — 13.3 聚合规则：fail 一票否决，优先于 not_checked —
+  const aggFail = runCompatibilityChecks(route({ baseUrl: 'https://api.deepseek.com/v1' }), undefined)
+  check(
+    '聚合：有 fail → verdict = fail（压过未检测项）',
+    aggFail.verdict === 'fail' && aggFail.failed.length === 1,
+    `${aggFail.verdict} / failed=${JSON.stringify(aggFail.failed)} / unchecked=${JSON.stringify(aggFail.unchecked)}`,
+  )
+  const aggOff = runCompatibilityChecks(route(), {
+    check_system_field_format: false,
+    check_cache_control: false,
+  })
+  check(
+    '聚合：全部关闭 → verdict = not_checked，两项都进未检测清单',
+    aggOff.verdict === 'not_checked' && aggOff.unchecked.length === 2,
+    `${aggOff.verdict} / ${JSON.stringify(aggOff.unchecked)}`,
+  )
+  const aggDefault = runCompatibilityChecks(route(), undefined)
+  check(
+    '聚合：不写 compatibility 块 → 两项默认开启',
+    aggDefault.results.length === 2 &&
+      aggDefault.results[0].detail !== '套件 YAML 显式关闭了本检查项' &&
+      aggDefault.results[1].detail !== '套件 YAML 显式关闭了本检查项',
+    JSON.stringify(aggDefault.results.map((r) => r.detail)),
+  )
+  // 这一条把「不写块 ≠ 关闭」和上面区分开：默认开启时 system 那项应当是 pass。
+  check(
+    '聚合：默认开启时 system 判 pass（证明默认不是 not_checked）',
+    aggDefault.results[0].status === 'pass',
+    aggDefault.results[0].status,
+  )
+
+  // — 13.4 / 13.5 / 13.6 端到端：过 eval_run_dual 落到报告里 —
+  // 注：`dist/index.js` 与 `dist/eval-runner.js` 在第 12 组已按无 query 的
+  // specifier 载入 ESM 缓存，桩固定为最后一次 `loadRunner` 设的 `dsh-ok`。
+  // 这不影响本组结论 —— 兼容性段在跑后端**之前**就算完了，与桩无关。
+  const { apply } = await import(`${ROOT}/dist/index.js`)
+  const mkSuite = (dir, file, lines) => {
+    writeFileSync(join(dir, file), lines.join('\n'))
+    let t
+    apply({ tools: { register: (x) => { t = x }, get: () => t } }, { suiteDir: dir })
+    return t
+  }
+  const backend = (role, model, baseUrl) => [
+    `  ${role}:`,
+    `    id: ${role}`,
+    `    baseUrl: ${baseUrl}`,
+    `    model: ${model}`,
+    `    apiKeyEnv: DEEPSEEK_API_KEY`,
+  ].join('\n')
+  const ANTHROPIC_URL = 'https://api.deepseek.com/anthropic'
+  const suiteBody = (baseUrl, extra = []) => [
+    'name: "兼容性门"',
+    'budgetCNY: 100',
+    ...extra,
+    'backends:',
+    backend('baseline', 'deepseek-v4-pro', ANTHROPIC_URL),
+    backend('candidate', 'deepseek-flash', baseUrl),
+    'steps:',
+    '  - prompt: "probe"',
+    '    assert:',
+    '      - type: output_contains',
+    '        text: "Harness"',
+    '',
+  ]
+
+  // 场景 A（= 指令里的「system 是数组 → 失败 → 不可迁移」的**可达版本**）：
+  // 「system 恒为内容块数组」在本 harness 上不可配置，所以那条路径根本不可达
+  // （实测：显式关闭检查项是唯一能让它变 not_checked 的开关）。真正可达的
+  // 兼容性失败是**端点不声称 Anthropic 兼容**——那才是配置能写错的地方。
+  const dirA = mkdtempSync(join(tmpdir(), 'dsh-compat-a-'))
+  const outA = await mkSuite(dirA, 'compat-fail.yml', suiteBody('https://api.deepseek.com/v1')).execute({
+    suite: 'compat-fail',
+  })
+  check('端到端A：报告出现兼容性门段', outA.report.includes('🔒 兼容性门'))
+  check(
+    '端到端A：端点不兼容 → ❌ 失败',
+    outA.report.includes('❌ 失败') && outA.report.includes('system 字段格式'),
+    outA.report.match(/system 字段格式.*/)?.[0],
+  )
+  check(
+    '端到端A：一票否决 → 写明「不可迁移」',
+    outA.report.includes('本趟判定「不可迁移」'),
+    outA.report.match(/本趟判定.*/)?.[0],
+  )
+
+  // 场景 B：显式关闭两项 → not_checked → 有条件迁移。
+  // 这是「用户可以关，但关掉只等于'没查'，不等于'查过了没问题'」的证明。
+  const dirB = mkdtempSync(join(tmpdir(), 'dsh-compat-b-'))
+  const outB = await mkSuite(
+    dirB,
+    'compat-off.yml',
+    suiteBody(ANTHROPIC_URL, [
+      'compatibility:',
+      '  check_system_field_format: false',
+      '  check_cache_control: false',
+    ]),
+  ).execute({ suite: 'compat-off' })
+  check(
+    '端到端B：两项都渲染成 ⚠️ 未检测',
+    (outB.report.match(/⚠️ 未检测/g) ?? []).length === 2,
+    outB.report.match(/⚠️ 未检测.*/g)?.join(' | '),
+  )
+  check(
+    '端到端B：未检测 → 最多「有条件迁移」（不是「可迁移」）',
+    outB.report.includes('本趟最多判定「有条件迁移」') && !outB.report.includes('本趟判定「不可迁移」'),
+    outB.report.match(/本趟最多判定.*/)?.[0],
+  )
+  check(
+    '端到端B：关闭项进未检测清单',
+    outB.report.includes('system 字段格式、cache_control 使用'),
+    outB.report.match(/未检测项：.*/)?.[0],
+  )
+
+  // 场景 C：真实配置（Anthropic 端点、不写 compatibility 块）—— 默认全开。
+  // 混合态：一项 pass 一项 not_checked，正是**渲染区分度**的测试点：
+  // 「✅ 通过」与「⚠️ 未检测」必须同时出现，且各自成行、不互相冒充。
+  const dirC = mkdtempSync(join(tmpdir(), 'dsh-compat-c-'))
+  const outC = await mkSuite(dirC, 'compat-default.yml', suiteBody(ANTHROPIC_URL)).execute({
+    suite: 'compat-default',
+  })
+  check('端到端C：默认开启 → system 判 ✅ 通过', outC.report.includes('✅ 通过'))
+  check(
+    '端到端C：cache_control 判 ⚠️ 未检测（与 pass 视觉可区分）',
+    outC.report.includes('⚠️ 未检测') && outC.report.includes('cache_control 使用'),
+  )
+  check(
+    '端到端C：通过 ≠ 未检测 —— 两行不共用一个状态词',
+    !/system 字段格式\s*⚠️/.test(outC.report) && !/cache_control 使用\s*✅/.test(outC.report),
+  )
+  check(
+    '端到端C：未检测项存在 → 最高只能「有条件迁移」',
+    outC.report.includes('本趟最多判定「有条件迁移」'),
+    outC.report.match(/本趟最多判定.*/)?.[0],
+  )
+  check(
+    '端到端C：写明「未检测」不等于「通过」',
+    outC.report.includes('"未检测"不等于"通过"'),
+  )
+  // 兼容性门不消耗 token，所以即使两个后端缺 key 被跳过，这一节也必须照常输出。
+  check('端到端C：兼容性段不依赖后端是否跑成', outC.report.includes('🔒 兼容性门'))
+}
+
 // ── 汇总 ───────────────────────────────────────────────────────────────────
 console.log('')
 if (failures.length) {

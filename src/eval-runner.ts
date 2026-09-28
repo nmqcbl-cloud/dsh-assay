@@ -37,6 +37,9 @@ import { computeCostUSD, USD_TO_CNY } from './pricing.js'
 import type { TokenUsage } from './pricing.js'
 import { SKIPPED_PREFIX } from './compare-reporter.js'
 import type { SuiteResult } from './compare-reporter.js'
+// 只 import 类型：兼容性检查在 `index.ts` 的 execute 里跑（它管的是整趟评测，
+// 不是单个后端），runner 只需要认识 YAML 里那个字段的形状。
+import type { CompatibilityConfig } from './compatibility-check.js'
 
 /** suite YAML 的一个 step。 */
 export interface SuiteStep {
@@ -62,6 +65,19 @@ export interface SuiteYaml {
    * 不填则不拍快照、也不能用产物断言。
    */
   workspace?: string
+  /**
+   * 兼容性门的开关。两项默认都开，可显式关闭：
+   *
+   * ```yaml
+   * compatibility:
+   *   check_system_field_format: true
+   *   check_cache_control: true
+   * ```
+   *
+   * 关掉一项会让它变成 `not_checked`（**不是** `pass`）—— 用户能说"我知道这项没问题"，
+   * 但不能说"这项算通过了"。判定因此最多到「有条件迁移」，风险清单里会列出它。
+   */
+  compatibility?: CompatibilityConfig
   backends: {
     baseline: BackendConfig
     candidate: BackendConfig

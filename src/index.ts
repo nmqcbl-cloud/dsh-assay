@@ -25,6 +25,8 @@ import { load } from 'js-yaml'
 import { runOneBackend } from './eval-runner.js'
 import type { SuiteYaml } from './eval-runner.js'
 import { generateComparison, renderReport } from './compare-reporter.js'
+import { runCompatibilityChecks } from './compatibility-check.js'
+import { ROUTE_API } from './model-router.js'
 import { USD_TO_CNY } from './pricing.js'
 import { snapshotRoot, snapshotWorkspace } from './workspace-snapshot.js'
 
@@ -97,6 +99,23 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG) {
 
         const yaml = load(readFileSync(suitePath, 'utf-8')) as SuiteYaml
 
+        // 兼容性门：**在跑双后端之前**执行。零 token —— 只读套件 YAML 与
+        // 已知的协议事实（`buildPatchConfig` 恒以 `ROUTE_API` 生成路由），
+        // 不发任何请求。所以即便下面的运行因缺 key 被跳过，这一节也有内容。
+        //
+        // 判的是 **candidate**（迁移目标）：迁移要回答的是"换过去行不行"，
+        // baseline 是既成事实，它的兼容性不是本次要判的东西。
+        const cand = yaml.backends.candidate
+        const compatibility = runCompatibilityChecks(
+          {
+            name: cand.displayName ?? cand.id,
+            api: ROUTE_API,
+            baseUrl: cand.baseUrl,
+            model: cand.model,
+          },
+          yaml.compatibility
+        )
+
         // 预算上限是套件级属性，放在 YAML 顶层，语义是**整趟**（两个后端共享一个池子）。
         // `runOneBackend` 的第三个参数语义不变 —— 它始终是「这个后端最多花多少」，
         // 只是调用方传的是**剩余**预算：先跑的后端花得多，后跑的可用额度就少。
@@ -125,6 +144,7 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG) {
           baseline,
           candidate,
           comparison: generateComparison(baseline, candidate),
+          compatibility,
           snapshots:
             afterBaseline !== undefined || afterCandidate !== undefined
               ? { afterBaseline, afterCandidate }

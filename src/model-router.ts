@@ -17,6 +17,15 @@ export interface BackendConfig {
   displayName?: string
 }
 
+/**
+ * 本 harness 生成的路由所用的协议。
+ *
+ * 导出成常量而不是在两处各写一遍字面量：**兼容性检查项要判的就是这个值的语义**
+ * （`anthropic-messages` 下 pi-ai 恒以内容块数组发送 system、恒发 cache_control）。
+ * 哪天这里换了协议，兼容性检查必须跟着变，所以只能有一个出处。
+ */
+export const ROUTE_API = 'anthropic-messages'
+
 export interface DualBackendConfig {
   baseline: BackendConfig
   candidate: BackendConfig
@@ -54,7 +63,7 @@ export function buildPatchConfig(cfg: BackendConfig): string {
         providers: {
           [cfg.id]: {
             displayName: cfg.displayName ?? cfg.id,
-            api: 'anthropic-messages',
+            api: ROUTE_API,
             baseURL: cfg.baseUrl,
             // 变量名，不是密钥。真正的密钥在 spawn 时注入子进程环境。
             apiKeyEnv: cfg.apiKeyEnv,
