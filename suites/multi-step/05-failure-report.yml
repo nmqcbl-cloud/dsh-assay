@@ -24,10 +24,10 @@ backends:
     model: deepseek-v4-pro
     apiKeyEnv: DEEPSEEK_API_KEY
   candidate:
-    id: deepseek-v4-pro
-    displayName: DeepSeek V4 Pro
+    id: deepseek-flash
+    displayName: DeepSeek Flash
     baseUrl: https://api.deepseek.com/anthropic
-    model: deepseek-v4-pro
+    model: deepseek-flash
     apiKeyEnv: DEEPSEEK_API_KEY
 
 steps:

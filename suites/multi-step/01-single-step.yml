@@ -6,9 +6,8 @@ name: "M1 单步基线：一句话解释概念"
 # 它的作用只有一个：当其余四个套件的对照组。如果它跑出 >1 步，说明环境有问题，
 # 不是模型在思考。
 #
-# baseline 与 candidate 都指向 deepseek-v4-pro：本套件的目的不是比模型，
-# 而是**验证套件本身能不能跑出有意义的步数分布**。所以报告里两列同名是正常的，
-# 它们本来就是同一个模型的两次运行。
+# 后端：baseline = deepseek-v4-pro，candidate = deepseek-flash。
+# （观测轮两列都是 v4-pro，那是为了验证套件本身；本轮起改为真正的双后端对比。）
 
 budgetCNY: 2
 timeoutSec: 300
@@ -21,10 +20,10 @@ backends:
     model: deepseek-v4-pro
     apiKeyEnv: DEEPSEEK_API_KEY
   candidate:
-    id: deepseek-v4-pro
-    displayName: DeepSeek V4 Pro
+    id: deepseek-flash
+    displayName: DeepSeek Flash
     baseUrl: https://api.deepseek.com/anthropic
-    model: deepseek-v4-pro
+    model: deepseek-flash
     apiKeyEnv: DEEPSEEK_API_KEY
 
 steps:
