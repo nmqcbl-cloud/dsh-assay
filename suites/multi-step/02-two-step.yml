@@ -41,7 +41,7 @@ backends:
 steps:
   - prompt: |
       先用 node 运行这个脚本重置工作区（用 bash）：
-      node /Users/mac/dsh-agent-eval/suites/multi-step/fixtures/reset-all.mjs two-step
+      node {suiteRoot}/suites/multi-step/fixtures/reset-all.mjs two-step
 
       然后读 /tmp/dsh-multi-step/two-step/slugify.mjs。
       它的 slugify 函数有 bug：应该把标题转成小写、并把空格换成连字符，但现在只做了后者。

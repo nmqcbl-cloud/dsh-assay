@@ -36,7 +36,7 @@
   `anthropic-messages` 路由 `--patch`，密钥只经环境变量注入，**永不落盘**。
 - **5 个多步套件**（`suites/multi-step/01`–`05`）：单步问答 / 两步 / 多文件定位 /
   工具链 CLI 解析落盘 / 失败报告；另有最小示例 `suites/dual-backend/basic.yml`。
-- **离线回归**（`test/run-offline.mjs`）：14 组 121 项断言，**零成本、不联网**，
+- **离线回归**（`test/run-offline.mjs`）：15 组 124 项断言，**零成本、不联网**，
   用桩 `dsh` 喂入按真实事件形状构造的 NDJSON。
 - **文档**：`docs/v1-release.md`（交付说明）、`docs/handoff.md`（交接）、
   `docs/backend-comparison.md`（三批次原始数据）、
@@ -105,4 +105,4 @@
 | **v1.5** | **任务类型索引**：把套件池按任务类型编目，让"适用范围"可枚举 |
 | **v2.0** | **运行时快速探测**：在真实调用中顺带采集兼容性信号，省掉额外探针 |
 
-[1.0.0]: https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/dsh-agent-eval/releases/tag/v1.0.0
+[1.0.0]: https://github.com/nmqcbl-cloud/dsh-assay/releases/tag/v1.0.0

@@ -1,0 +1,16 @@
+#!/bin/sh
+# 桩 dsh：把收到的 prompt（argv 最后一项）原样回显进 final.text。
+#
+# 专门用来验 `{suiteRoot}` 替换：断言里写的是**期望的绝对路径**，所以只有
+# 插件真的替换过，`output_contains` 才会通过；没替换的话 final.text 里是字面量
+# `{suiteRoot}`，断言必然失败。这样这条断言测的是替换行为本身，不是它的实现细节。
+#
+# 事件形状照抄真实 headless --json，usage 字段按本仓计价表的要求给全。
+for last; do :; done
+cat <<NDJSON
+{"type":"session","sessionId":"session-stub-prompt","cwd":"/tmp"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":100,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0,"totalTokens":120}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","text":"GOT: $last"}
+NDJSON
+exit 0

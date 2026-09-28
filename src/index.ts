@@ -1,4 +1,4 @@
-// dsh-agent-eval — 双后端对比评测插件（Claude vs DeepSeek 迁移接受门）。
+// dsh-migration-eval — 双后端对比评测插件（Claude vs DeepSeek 迁移接受门）。
 //
 // ⚠️ 与 SPEC.md 第五节 5.3 的差异（仅为适配真实 DSH 插件 API，行为不变）：
 //   1. 注册用 `defineTool`（`@deepseek-ai/dsh-tools`），不是裸对象 —— 真实
@@ -32,7 +32,7 @@ import { USD_TO_CNY } from './pricing.js'
 import { snapshotRoot, snapshotWorkspace } from './workspace-snapshot.js'
 
 // 插件显示名，出现在 loader 诊断信息里。
-export const name = 'dsh-agent-eval'
+export const name = 'dsh-migration-eval'
 
 // 等宿主工具注册表就绪后再运行。
 export const inject = ['tools']
@@ -185,6 +185,6 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG) {
 
   // 自检：确认工具真的进了注册表。
   console.log(
-    `[dsh-agent-eval] registered "eval_run_dual" — listed=${ctx.tools.get('eval_run_dual') !== undefined}, suiteRoot=${suiteRoot}`,
+    `[dsh-migration-eval] registered "eval_run_dual" — listed=${ctx.tools.get('eval_run_dual') !== undefined}, suiteRoot=${suiteRoot}`,
   )
 }

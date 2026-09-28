@@ -7,7 +7,12 @@
  * 第一步就是运行本脚本来重置。
  *
  * 用法（由被测 agent 执行）：
- *   node /Users/mac/dsh-agent-eval/suites/multi-step/fixtures/reset-all.mjs <suite>
+ *   node {suiteRoot}/suites/multi-step/fixtures/reset-all.mjs <suite>
+ *
+ * `{suiteRoot}` 不是 shell 变量 —— 它是套件 YAML 的占位符，由插件在把 prompt
+ * 交给 agent **之前**替换成本包的实际安装路径（见 `src/eval-runner.ts` 的
+ * `renderPrompt`）。写死绝对路径的话，套件发出去只有作者那台机器能跑。
+ * 本脚本自身用 `import.meta.url` 定位，所以它拷到哪里都能工作。
  *
  * 只用 Node 内置模块，不依赖 pnpm install。
  */

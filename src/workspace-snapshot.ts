@@ -31,7 +31,7 @@ export interface WorkspaceSnapshots {
 export function snapshotRoot(suite: string, at: Date = new Date()): string {
   const stamp = at.toISOString().replace(/[:.]/g, '-')
   const safe = suite.replace(/[/\\]/g, '_').replace(/[^\w.-]/g, '')
-  return join(tmpdir(), 'dsh-agent-eval-snapshots', `${safe}-${stamp}`)
+  return join(tmpdir(), 'dsh-migration-eval-snapshots', `${safe}-${stamp}`)
 }
 
 /**

@@ -11,7 +11,7 @@
  *
  * 用法：`npm run test:offline`（会先自动 build）。
  */
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,7 +44,7 @@ function check(name, cond, detail) {
 
 // 桩脚本带 shebang，spawn 直接执行它 —— 需要执行位。
 // 显式 chmod，避免换机器/换 checkout 方式后丢掉权限位。
-for (const s of ['dsh-ok', 'dsh-steps', 'dsh-401', 'dsh-budget'])
+for (const s of ['dsh-ok', 'dsh-steps', 'dsh-401', 'dsh-budget', 'dsh-prompt-echo'])
   chmodSync(join(HERE, 'stubs', s), 0o755)
 
 let seq = 0
@@ -916,6 +916,63 @@ console.log('\n14. 判定层（纯函数，零 token）')
     out.report.includes('n=9，3 个批次'),
     out.report.match(/成本门：.*/)?.[0],
   )
+}
+
+// ── 15. prompt 里的 {suiteRoot} 占位符 ─────────────────────────────────────
+console.log('\n15. 套件可移植性：{suiteRoot} 由插件填成本包安装路径')
+{
+  // 背景：会改工作区的套件靠 prompt 第一步跑 `fixtures/reset-all.mjs` 重置工作区。
+  // 写死绝对路径的话，包发出去只有作者那台机器能跑 —— agent 执行不存在的路径，
+  // 工作区不重置，baseline 跑完 candidate 看到改好的文件，步数塌成 1。
+  // 所以占位符必须由插件替换，且替换要发生在 prompt 进子进程之前。
+  const { runOneBackend } = await loadRunner('dsh-prompt-echo')
+
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-suite-root-'))
+  const backend = (role, model) => [
+    `  ${role}:`,
+    `    id: ${role}`,
+    `    baseUrl: https://api.deepseek.com/anthropic`,
+    `    model: ${model}`,
+    `    apiKeyEnv: DEEPSEEK_API_KEY`,
+  ].join('\n')
+  const PROMPT = 'run node {suiteRoot}/suites/multi-step/fixtures/reset-all.mjs two-step'
+  const writeSuite = (file, assertText) =>
+    writeFileSync(
+      join(dir, file),
+      [
+        'name: "占位符探针"',
+        'budgetCNY: 100',
+        'backends:',
+        backend('baseline', 'deepseek-v4-pro'),
+        backend('candidate', 'deepseek-flash'),
+        'steps:',
+        `  - prompt: "${PROMPT}"`,
+        '    assert:',
+        '      - type: output_contains',
+        `        text: "${assertText}"`,
+        '',
+      ].join('\n'),
+    )
+
+  // 正面：断言写**期望的绝对路径**。桩把收到的 prompt 原样回显进 final.text，
+  // 所以只有插件真的替换过，这条断言才可能通过。
+  writeSuite('portable.yml', `${ROOT}/suites/multi-step/fixtures/reset-all.mjs`)
+  const r = await runOneBackend(join(dir, 'portable.yml'), V4PRO, 100)
+  check('占位符被替换成本包安装路径 → 断言通过', r.passed === 1, JSON.stringify(r.failedCases))
+
+  // 反面：断言写**字面量 `{suiteRoot}`**。若替换没发生（或是空操作），它会通过 ——
+  // 所以这条"期望失败"才真正证明了替换发生了，而不是断言碰巧成立。
+  writeSuite('literal.yml', '{suiteRoot}')
+  const r2 = await runOneBackend(join(dir, 'literal.yml'), V4PRO, 100)
+  check(
+    '替换是真实发生的（字面量 {suiteRoot} 已不在 prompt 里）',
+    r2.passed === 0 && r2.failedCases.some((c) => c.includes('未包含')),
+    JSON.stringify(r2.failedCases),
+  )
+
+  // 替换出来的路径必须真的指向仓库里存在的脚本 —— 否则"替换成功"没有意义。
+  const script = join(ROOT, 'suites/multi-step/fixtures/reset-all.mjs')
+  check('替换结果指向真实存在的脚本', existsSync(script), script)
 }
 
 // ── 汇总 ───────────────────────────────────────────────────────────────────

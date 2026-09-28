@@ -6,7 +6,7 @@
 
 ## 一、这个项目是什么
 
-`dsh-agent-eval` 是一个 **DeepSeek Harness (dsh) 工具插件**，注册一个工具
+`dsh-migration-eval` 是一个 **DeepSeek Harness (dsh) 工具插件**，注册一个工具
 `eval_run_dual`：跑「双后端对比评测」，用来回答**迁移接受门**的问题——
 候选模型（如 `deepseek-flash`）能不能替代基线模型（如 `deepseek-v4-pro`）。
 
@@ -237,7 +237,7 @@ v2/v3 的成本列是 6 位精度。v1 的旧值原样保留在原文里，未�
 | `/tmp/v1-release/` | **v1.0 交付跑** 5 套件各 1 次 + `run.sh` + `extract.mjs` + `parsed.json` |
 | `/tmp/compat-e2e/` | 兼容性门 e2e 验证（01 单套件 1 次） |
 | `/tmp/multi-step-observation/` | 5 套件观测跑 + 首轮快照 |
-| `os.tmpdir()/dsh-agent-eval-snapshots/` | 所有工作区快照，按套件+时间戳分目录 |
+| `os.tmpdir()/dsh-migration-eval-snapshots/` | 所有工作区快照，按套件+时间戳分目录 |
 
 ---
 

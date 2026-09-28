@@ -1,5 +1,5 @@
 {
-  "name": "dsh-agent-eval",
+  "name": "dsh-migration-eval",
   "version": "1.0.0",
   "description": "双后端对比评测插件，用「批内对比」回答模型迁移的接受门问题 | Dual-backend comparison evaluation for DeepSeek Harness — a migration acceptance gate",
   "license": "MIT",
@@ -29,7 +29,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/dsh-agent-eval.git"
+    "url": "git+https://github.com/nmqcbl-cloud/dsh-assay.git"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

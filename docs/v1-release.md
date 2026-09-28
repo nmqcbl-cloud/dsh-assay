@@ -1,8 +1,8 @@
-# dsh-agent-eval v1.0 交付说明（2026-09-28）
+# dsh-migration-eval v1.0 交付说明（2026-09-28）
 
 ## 一、项目定位
 
-**一句话**：`dsh-agent-eval` 是一个 dsh 工具插件，注册工具 `eval_run_dual`，
+**一句话**：`dsh-migration-eval` 是一个 dsh 工具插件，注册工具 `eval_run_dual`，
 跑「双后端对比评测」，回答**迁移接受门**的问题 —— 候选模型能不能替代基线模型。
 
 它的产出是**给迁移决策用的证据**，不是 benchmark 排名。

@@ -218,8 +218,8 @@ done
 
 ```
 📁 工作区快照（两次运行共用一个工作区，分别留证）
-  baseline 后：/var/folders/.../dsh-agent-eval-snapshots/multi-step_05-failure-report-<时间戳>/after-baseline
-  candidate 后：/var/folders/.../dsh-agent-eval-snapshots/multi-step_05-failure-report-<时间戳>/after-candidate
+  baseline 后：/var/folders/.../dsh-migration-eval-snapshots/multi-step_05-failure-report-<时间戳>/after-baseline
+  candidate 后：/var/folders/.../dsh-migration-eval-snapshots/multi-step_05-failure-report-<时间戳>/after-candidate
 ```
 
 - 快照落在 `os.tmpdir()` 下，带时间戳，连跑多次不互相覆盖（波动测试正需要对比多次产物）

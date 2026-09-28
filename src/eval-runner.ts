@@ -26,7 +26,8 @@
 import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { load } from 'js-yaml'
 // 相对导入必须带 `.js`：tsconfig 是 moduleResolution: bundler，tsc 不补扩展名，
 // 而 Node ESM 解析 dist/ 时要求显式扩展名。
@@ -44,6 +45,25 @@ import type { CostGate } from './verdict.js'
 
 /** 套件 YAML 里的 `historicalCost` 一节 —— 就是判定层的 `CostGate`。 */
 export type HistoricalCost = CostGate
+
+/** 本包根目录（`dist/eval-runner.js` 的上一级）。 */
+const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * 套件 prompt 里的 `{suiteRoot}` → 本包的实际安装路径。
+ *
+ * **为什么由插件填而不是写在 YAML 里**：会改工作区的套件，prompt 第一步要跑
+ * `suites/<dir>/fixtures/reset-all.mjs` 把工作区恢复原状（见该脚本头部注释）。
+ * 套件是**发布出去给别人跑的**，把绝对路径写死进 prompt，只有作者那台机器能跑 ——
+ * 别人装完包，agent 去执行一个不存在的路径，工作区不会被重置，baseline 跑完
+ * candidate 看到的是已经改好的文件，步数会塌成 1。**那不是模型行为，是污染的读数。**
+ *
+ * 插件知道自己装在哪，所以由插件来填。纯字符串替换，prompt 的其余部分原样不动。
+ * 不认别的占位符 —— 未知的花括号原样保留，免得和 prompt 里正常的 `{}` 冲突。
+ */
+function renderPrompt(prompt: string): string {
+  return prompt.replaceAll('{suiteRoot}', PKG_ROOT)
+}
 
 /** suite YAML 的一个 step。 */
 export interface SuiteStep {
@@ -384,7 +404,7 @@ export async function runOneBackend(
   const steps = suite.steps ?? []
 
   // patch 只含端点、模型 id 与**环境变量名**，不含密钥本身。
-  const tmpDir = mkdtempSync(join(tmpdir(), 'dsh-agent-eval-'))
+  const tmpDir = mkdtempSync(join(tmpdir(), 'dsh-migration-eval-'))
   const patchPath = join(tmpDir, 'route.patch.yml')
   writeFileSync(patchPath, buildPatchConfig(backend), 'utf-8')
 
@@ -395,7 +415,14 @@ export async function runOneBackend(
     let totalSteps = 0
 
     for (const [i, step] of steps.entries()) {
-      const run = await runHeadless(step.prompt, backend, apiKey, patchPath, timeoutSec, budgetUSD)
+      const run = await runHeadless(
+        renderPrompt(step.prompt),
+        backend,
+        apiKey,
+        patchPath,
+        timeoutSec,
+        budgetUSD,
+      )
 
       totals.inputTokens += run.usage.inputTokens
       totals.outputTokens += run.usage.outputTokens

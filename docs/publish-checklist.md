@@ -7,9 +7,10 @@
 
 ---
 
-## 零、发布前：三个占位符必须先替换
+## 零、发布前：两个占位符必须先替换
 
-当前仓库里有 **3 处占位符**。不替换就发出去，包会带一个指向不存在仓库的链接。
+`package.json` 的 `repository.url` 与 `CHANGELOG.md` 的链接**已经填好**
+（`https://github.com/nmqcbl-cloud/dsh-assay`）。剩下 **2 处**：
 
 ```bash
 # 1. 查看还有哪些占位符没填
@@ -18,9 +19,7 @@ grep -rn "REPLACE_WITH" package.json LICENSE CHANGELOG.md README.md
 
 | 文件 | 占位符 | 替换成 |
 |---|---|---|
-| `package.json` | `REPLACE_WITH_YOUR_GITHUB_USERNAME`（`repository.url`） | 你的 GitHub 用户名 |
 | `LICENSE` | `REPLACE_WITH_COPYRIGHT_HOLDER` | 你希望署名的名字（个人名或组织名） |
-| `CHANGELOG.md` | `REPLACE_WITH_YOUR_GITHUB_USERNAME`（末尾链接） | 同上 |
 
 替换后确认清空：
 
@@ -28,17 +27,35 @@ grep -rn "REPLACE_WITH" package.json LICENSE CHANGELOG.md README.md
 grep -rn "REPLACE_WITH" package.json LICENSE CHANGELOG.md README.md   # 应无输出
 ```
 
+> ⚠️ **两个名字是有意分开的**：npm 包名 = `dsh-migration-eval`，GitHub 仓库名 = `dsh-assay`。
+> 改任何一个，都要同步改：`package.json` 的 `name` / `repository.url`、
+> `cordis.patch.yml` 的 `name`、README 的安装命令、本清单的下文。
+
 ---
 
-## 一、npm 包名可用性（人工确认）
+## 一、npm 包名（已定：`dsh-migration-eval`）
+
+已核实（2026-09-29，直连 `registry.npmjs.org`）：
+
+| 名字 | 状态 |
+|---|---|
+| `dsh-agent-eval` | ❌ 被占（`dmso`，2026-08-14） |
+| `dsh-assay` | ❌ 被占（`dushaobindoudou`，2026-09-18，占位包） |
+| **`dsh-migration-eval`** | ✅ **空着，本包采用** |
+
+**发布前再确认一次**（名字可能被别人抢发）：
 
 ```bash
-npm view dsh-agent-eval 2>&1
-# "404 Not Found" → 名字可用，直接用
-# 返回了包信息   → 名字被占用，二选一：
-#   ① 换名：dsh-migration-eval
-#   ② 加 scope：@<你的用户名>/dsh-agent-eval
+npm view dsh-migration-eval --registry=https://registry.npmjs.org 2>&1
+# "404 Not Found" → 可以用，继续
+# 返回了包信息   → 被占了，二选一：
+#   ① 换别的名字
+#   ② 加 scope：@<你的用户名>/dsh-migration-eval
 ```
+
+> ⚠️ **必须加 `--registry=https://registry.npmjs.org`。** 本机 npm 默认 registry 是
+> `registry.npmmirror.com`（淘宝镜像）—— 那是**只读镜像，不能发布**，查询结果也可能滞后。
+> 发布前请显式确认一次：`npm config get registry`。
 
 **若改用 scope（`@用户名/...`）**，`package.json` 必须补一行，否则发布失败或发成私有：
 
@@ -58,7 +75,7 @@ cd /Users/mac/dsh-agent-eval
 # 1. 构建通过
 pnpm build
 
-# 2. 离线回归全绿（14 组 121 项断言）
+# 2. 离线回归全绿（15 组 124 项断言）
 pnpm test:offline
 
 # 3. 打包内容正确 —— 这是最重要的一步
@@ -131,10 +148,11 @@ git commit -m "chore: initial commit"
 
 # 2. 建远程仓库并推送
 #    方式 A：用 gh CLI（推荐，一条命令搞定建库+推送）
-gh repo create dsh-agent-eval --public --source=. --remote=origin --push
+#    注意：仓库名是 dsh-assay，与 npm 包名 dsh-migration-eval 不同 —— 见第零节
+gh repo create dsh-assay --public --source=. --remote=origin --push
 
 #    方式 B：先在网页建空仓库，再手动接远程
-git remote add origin git@github.com:<你的用户名>/dsh-agent-eval.git
+git remote add origin git@github.com:nmqcbl-cloud/dsh-assay.git
 git branch -M main
 git push -u origin main
 
@@ -169,7 +187,7 @@ git ls-files | grep -E "node_modules|^dist/" | head    # 应无输出
   也就是说，**安装渠道就是 npm 本身** —— 发布到 npm 之后，用户即可直接用：
 
   ```bash
-  dsh plugin --profile <profile> add dsh-agent-eval
+  dsh plugin --profile <profile> add dsh-migration-eval
   ```
 
 - 在已安装的 `@deepseek-ai/dsh-tools@0.2.0-rc.1` 与 dsh CLI 帮助文本中
@@ -184,7 +202,7 @@ git ls-files | grep -E "node_modules|^dist/" | head    # 应无输出
 **用户安装后应看到**（可作为渠道可用性的验证）：
 
 ```
-[dsh-agent-eval] registered "eval_run_dual" — listed=true
+[dsh-migration-eval] registered "eval_run_dual" — listed=true
 ```
 
 ---
@@ -193,21 +211,21 @@ git ls-files | grep -E "node_modules|^dist/" | head    # 应无输出
 
 ```bash
 # 1. 包已上架、元数据正确
-npm view dsh-agent-eval
-npm view dsh-agent-eval version        # 1.0.0
-npm view dsh-agent-eval keywords
-npm view dsh-agent-eval license        # MIT
-npm view dsh-agent-eval dist.tarball   # 可下载
+npm view dsh-migration-eval
+npm view dsh-migration-eval version        # 1.0.0
+npm view dsh-migration-eval keywords
+npm view dsh-migration-eval license        # MIT
+npm view dsh-migration-eval dist.tarball   # 可下载
 
 # 2. 从 registry 装一次，确认内容完整（用一个干净目录，别污染本仓库）
 mkdir -p /tmp/npm-smoke && cd /tmp/npm-smoke
-npm pack dsh-agent-eval
-tar tzf dsh-agent-eval-1.0.0.tgz | head -30
+npm pack dsh-migration-eval
+tar tzf dsh-migration-eval-1.0.0.tgz | head -30
 # 应看到 package/dist/、package/suites/、package/cordis.patch.yml、package/README.md
 
 # 3. 装进 dsh profile（这一步会真正验证插件能跑）
-dsh plugin --profile <一个干净的 profile> add dsh-agent-eval
-dsh --profile <该 profile> --dump-config | grep dsh-agent-eval
+dsh plugin --profile <一个干净的 profile> add dsh-migration-eval
+dsh --profile <该 profile> --dump-config | grep dsh-migration-eval
 
 # 4. 端到端：跑一次真实评测（需要 key）
 eval "$(grep -E '^export ANTHROPIC_AUTH_TOKEN=' "$HOME/.zshrc")"
@@ -218,7 +236,7 @@ dsh --profile <该 profile> headless --json \
 # 期望：报告顶部出现 🎯 迁移判定：➖ 不判定（01 是环境探针）
 ```
 
-> `npx dsh-agent-eval --version` **不适用** —— 本包是 **dsh 插件**，没有 CLI 入口
+> `npx dsh-migration-eval --version` **不适用** —— 本包是 **dsh 插件**，没有 CLI 入口
 > （`bin` 字段未定义）。它的"入口"是被 dsh 加载后注册工具。验证请用上面的方式。
 
 **第 4 步是唯一能同时验证「npm 包完整」+「插件真能跑」的检查**，
@@ -252,15 +270,15 @@ grep -rn "REPLACE_WITH" package.json LICENSE CHANGELOG.md README.md   # 逐个�
 # ② 验证
 pnpm build && pnpm test:offline && npm pack --dry-run
 
-# ③ 建仓
-gh repo create dsh-agent-eval --public --source=. --remote=origin --push
+# ③ 建仓（仓库名 dsh-assay）
+gh repo create dsh-assay --public --source=. --remote=origin --push
 git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0
 
 # ④ 发布
 npm login && pnpm publish
 
 # ⑤ 验证
-npm view dsh-agent-eval version
+npm view dsh-migration-eval version
 ```
 
 ---

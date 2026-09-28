@@ -42,7 +42,7 @@ backends:
 steps:
   - prompt: |
       先用 node 运行这个脚本重置工作区（用 bash）：
-      node /Users/mac/dsh-agent-eval/suites/multi-step/fixtures/reset-all.mjs failure-report
+      node {suiteRoot}/suites/multi-step/fixtures/reset-all.mjs failure-report
 
       工作区在 /tmp/dsh-multi-step/failure-report/。请按 config/deploy.json 里的配置
       把服务部署起来。

@@ -1,4 +1,4 @@
-# dsh-agent-eval
+# dsh-migration-eval
 
 > **把一个 Agent 从 Claude 切到 DeepSeek，你怎么知道能不能切？**
 > 这个工具回答的就是这一个问题 —— 它是一座**迁移接受门**。
@@ -27,15 +27,15 @@
 
 ```sh
 # 1. 装进一个 dsh profile（在插件的父目录执行 —— 相对路径锚定调用目录）
-dsh plugin --profile eval-runner add dsh-agent-eval
+dsh plugin --profile eval-runner add dsh-migration-eval
 
 # 2. 确认注册成功
-dsh --profile eval-runner --dump-config | grep dsh-agent-eval
-# 启动时也应看到：[dsh-agent-eval] registered "eval_run_dual" — listed=true
+dsh --profile eval-runner --dump-config | grep dsh-migration-eval
+# 启动时也应看到：[dsh-migration-eval] registered "eval_run_dual" — listed=true
 ```
 
-> **尚未发布到 npm？** 用本地路径装：`dsh plugin --profile eval-runner add ../dsh-agent-eval`，
-> 或在包目录里先 `pnpm build` 再 `npm pack` 拿到 tgz 后 `add ./dsh-agent-eval-1.0.0.tgz`。
+> **尚未发布到 npm？** 用本地路径装：`dsh plugin --profile eval-runner add ../dsh-migration-eval`，
+> 或在包目录里先 `pnpm build` 再 `npm pack` 拿到 tgz 后 `add ./dsh-migration-eval-1.0.0.tgz`。
 
 > **headless 需要独立 profile**，且该 profile 不能自带默认模型配置 ——
 > 插件会按套件 YAML 现生成路由 patch 去填 `agent-default-model` 那一行，两者会抢。
@@ -187,6 +187,12 @@ steps:
 
 `apiKeyEnv` 是**变量名，不是密钥** —— 密钥只在运行时注入子进程环境，**永不落盘**。
 
+**prompt 里的 `{suiteRoot}`**：由插件在把 prompt 交给 agent **之前**替换成本包的实际
+安装路径。会改工作区的套件靠 prompt 第一步跑 `{suiteRoot}/suites/.../fixtures/reset-all.mjs`
+来重置工作区 —— 写死绝对路径的话，套件发出去只有作者那台机器能跑（agent 执行不存在的
+路径 → 工作区不重置 → baseline 跑完 candidate 看到改好的文件，步数塌成 1）。
+只认这一个占位符，别的花括号原样保留。
+
 ## 安全边界
 
 - **不执行任意 shell**：产物断言走 `spawnSync` + `shell: false`，
@@ -238,7 +244,7 @@ src/
 ```sh
 pnpm install
 pnpm build            # tsc → dist/
-pnpm test:offline     # 离线回归：14 组 121 项断言，零成本、不联网（会先自动 build）
+pnpm test:offline     # 离线回归：15 组 124 项断言，零成本、不联网（会先自动 build）
 ```
 
 **`pnpm test:offline` 是改动后必跑的回归手段，不需要 key。**
