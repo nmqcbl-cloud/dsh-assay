@@ -56,6 +56,22 @@ DEEPSEEK_API_KEY='<key>' dsh --profile eval-runner headless --json "调用 eval_
 不重置的话第二次运行会看到第一次已经修好的文件。观测结果见
 [`docs/multi-step-observation.md`](docs/multi-step-observation.md)。
 
+> ⚠️ **这些套件的 `1/1` 不携带正确性信息。** 目前 `checkAssertions` 只支持
+> `output_contains` / `max_steps`，**没有查工作区产物的断言类型**，所以套件里
+> 唯一的断言是 `max_steps: 20` 护栏。任务做对了没有，现在只能靠快照人工核对。
+> 补产物断言是接受门的前置条件，见
+> [`docs/acceptance-gate-design.md`](docs/acceptance-gate-design.md) 第四节。
+
+## 文档 / Docs
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/handoff.md`](docs/handoff.md) | **先读这份** —— 交接文档：现状、约束、DSH 坑、待办 |
+| [`docs/eval-design-constraints.md`](docs/eval-design-constraints.md) | 四条设计约束 + 波动测量协议 |
+| [`docs/multi-step-observation.md`](docs/multi-step-observation.md) | 5 套件观测跑 + 05 三次波动 |
+| [`docs/backend-comparison.md`](docs/backend-comparison.md) | v4-pro vs flash 双后端对比（15 组） |
+| [`docs/acceptance-gate-design.md`](docs/acceptance-gate-design.md) | 接受门设计草案（未实现） |
+
 ## ⚠️ 评测设计约束 / Design constraints
 
 **成本不可跨运行对比。** 同一套件连跑三次，`inputTokens` 方差为 **0%**，成本却摆动

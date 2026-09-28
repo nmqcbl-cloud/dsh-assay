@@ -99,12 +99,16 @@ export function renderReport(report: DualBackendReport): string {
   lines.push(
     `${'输出Token'.padEnd(14)}${cell(String(baseline.outputTokens), bSkip)}${cell(String(candidate.outputTokens), cSkip)}`
   )
+  // 6 位小数，不是 4 位。便宜的模型（如 flash 跑单步套件）真实成本量级在 1e-5，
+  // 4 位会把 0.000068 渲染成 0.0001 —— 相对误差 40%，不足以支撑成本判据。
+  // 再多的位数没有意义：单价本身的精度也不到那里。
+  const COST_DP = 6
   lines.push(
-    `${'成本(USD)'.padEnd(14)}${cell(baseline.costUSD.toFixed(4), bSkip)}${cell(candidate.costUSD.toFixed(4), cSkip)}`
+    `${'成本(USD)'.padEnd(14)}${cell(baseline.costUSD.toFixed(COST_DP), bSkip)}${cell(candidate.costUSD.toFixed(COST_DP), cSkip)}`
   )
   // 预算上限是人民币、成本按美元算，两个币种都摆出来，省得心算。
   lines.push(
-    `${'成本(CNY)'.padEnd(14)}${cell((baseline.costUSD * USD_TO_CNY).toFixed(4), bSkip)}${cell((candidate.costUSD * USD_TO_CNY).toFixed(4), cSkip)}`
+    `${'成本(CNY)'.padEnd(14)}${cell((baseline.costUSD * USD_TO_CNY).toFixed(COST_DP), bSkip)}${cell((candidate.costUSD * USD_TO_CNY).toFixed(COST_DP), cSkip)}`
   )
   lines.push(
     `${'平均步数'.padEnd(14)}${cell(baseline.avgSteps.toFixed(1), bSkip)}${cell(candidate.avgSteps.toFixed(1), cSkip)}`
