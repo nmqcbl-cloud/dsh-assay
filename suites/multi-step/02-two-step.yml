@@ -1,0 +1,41 @@
+name: "M2 两步场景：读一个文件 + 修一个函数"
+#
+# 观测用套件。预期 2-4 步：读文件 → 改一处 → 跑一次验证。
+#
+# prompt 第一句是重置工作区。原因见 fixtures/reset-all.mjs 的说明：
+# eval_run_dual 先跑 baseline 再跑 candidate，两次共用一个工作区；
+# 不重置的话 candidate 看到的是 baseline 已经修好的文件，步数会塌成 1。
+#
+# 无 assert：观测阶段只看步数 / token / 成本，断言等分布出来再补。
+
+budgetCNY: 2
+timeoutSec: 300
+
+backends:
+  baseline:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+  candidate:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+steps:
+  - prompt: |
+      先用 node 运行这个脚本重置工作区（用 bash）：
+      node /Users/mac/dsh-agent-eval/suites/multi-step/fixtures/reset-all.mjs two-step
+
+      然后读 /tmp/dsh-multi-step/two-step/slugify.mjs。
+      它的 slugify 函数有 bug：应该把标题转成小写、并把空格换成连字符，但现在只做了后者。
+      修复它，再运行一次 node /tmp/dsh-multi-step/two-step/slugify.mjs，
+      确认输出正好是 hello-world。
+
+      最后用一句话报告：改了什么、验证结果如何。
+    assert:
+      - type: max_steps
+        value: 20

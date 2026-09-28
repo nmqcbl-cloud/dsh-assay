@@ -44,6 +44,18 @@ DEEPSEEK_API_KEY='<key>' dsh --profile eval-runner headless --json "调用 eval_
 （始终是「这一个后端最多花多少」）。离线回归第 9 组专门盯这段：`test/fixtures/budget-probe.yml`
 的预算卡在「够 baseline 花完、不够 candidate 起步」的窗口里，若误把总额当余额传下去，测试会红。
 
+## 套件 / Suites
+
+| 目录 | 用途 |
+|---|---|
+| `suites/dual-backend/basic.yml` | 双模型对比（v4-pro vs flash），1 个单步用例 |
+| `suites/multi-step/` | 5 个观测用套件：单步 / 两步 / 多文件 / 工具链 / 失败恢复 |
+
+`multi-step/` 是**观测用**的，不是接受门。它靠 `fixtures/reset-all.mjs` 把工作区重置到
+初始（有 bug 的）状态——因为 `eval_run_dual` 让 baseline 和 candidate 共用一个工作区，
+不重置的话第二次运行会看到第一次已经修好的文件。观测结果见
+[`docs/multi-step-observation.md`](docs/multi-step-observation.md)。
+
 ## ⚠️ 评测设计约束 / Design constraints
 
 **成本不可跨运行对比。** 同一套件连跑三次，`inputTokens` 方差为 **0%**，成本却摆动

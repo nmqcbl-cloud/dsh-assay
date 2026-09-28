@@ -1,0 +1,37 @@
+name: "M1 单步基线：一句话解释概念"
+#
+# 观测用套件，**不是**接受门。第五阶段（接受门）之前不要拿它下结论。
+#
+# 场景：单步。预期 1 步 —— 模型不需要工具，直接作答。
+# 它的作用只有一个：当其余四个套件的对照组。如果它跑出 >1 步，说明环境有问题，
+# 不是模型在思考。
+#
+# baseline 与 candidate 都指向 deepseek-v4-pro：本套件的目的不是比模型，
+# 而是**验证套件本身能不能跑出有意义的步数分布**。所以报告里两列同名是正常的，
+# 它们本来就是同一个模型的两次运行。
+
+budgetCNY: 2
+timeoutSec: 300
+
+backends:
+  baseline:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+  candidate:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+steps:
+  - prompt: "用一句话解释什么是 Agent Harness"
+    assert:
+      - type: output_contains
+        text: "Harness"
+      # 观测期的护栏，不是判据：只防死循环烧钱。真阈值等观测数据出来再定。
+      - type: max_steps
+        value: 20

@@ -1,0 +1,45 @@
+name: "M4 工具链场景：调外部命令 + 解析输出 + 据结果决策 + 写文件"
+#
+# 观测用套件。预期 3-8 步。
+#
+# 与 M2/M3 的区别：那两个的输入是「代码」，可以靠读文件完成；这个的输入是
+# **运行外部 CLI 拿到的 stdout**，必须真的执行才能拿到数据，且要做解析 + 决策 + 落盘。
+#
+# 真值：qty 最大的是 B-207（48），写出的 report.json 应为
+# {"topSku":"B-207","qty":48}
+
+budgetCNY: 2
+timeoutSec: 300
+
+backends:
+  baseline:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+  candidate:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+steps:
+  - prompt: |
+      先用 node 运行这个脚本重置工作区（用 bash）：
+      node /Users/mac/dsh-agent-eval/suites/multi-step/fixtures/reset-all.mjs tool-chain
+
+      然后运行 /tmp/dsh-multi-step/tool-chain/inventory.mjs 拿到库存清单（它会把 JSON
+      打到 stdout）。
+
+      解析它的输出，找出 qty 最大的那一项，把它的 sku 和 qty 写成 JSON 文件
+      /tmp/dsh-multi-step/tool-chain/report.json，内容格式为
+      {"topSku": "<sku>", "qty": <数字>}。
+
+      写完后把它读回来，确认内容确实是你要写的东西（不要只确认写成功了）。
+
+      最后用一句话报告 topSku 和 qty。
+    assert:
+      - type: max_steps
+        value: 20

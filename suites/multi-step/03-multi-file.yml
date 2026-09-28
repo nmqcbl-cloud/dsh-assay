@@ -1,0 +1,40 @@
+name: "M3 多步场景：读多个文件 + 定位 bug + 修复 + 验证"
+#
+# 观测用套件。预期 5-15 步。
+#
+# 三个文件里只有 format.mjs 有 bug（Math.min 写成了该用的 Math.max），
+# main.mjs 是自检入口，math.mjs 是无辜文件。要跑出多步，agent 必须真的去读、
+# 去定位，而不是看到 FAIL 就瞎改。
+
+budgetCNY: 2
+timeoutSec: 300
+
+backends:
+  baseline:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+  candidate:
+    id: deepseek-v4-pro
+    displayName: DeepSeek V4 Pro
+    baseUrl: https://api.deepseek.com/anthropic
+    model: deepseek-v4-pro
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+steps:
+  - prompt: |
+      先用 node 运行这个脚本重置工作区（用 bash）：
+      node /Users/mac/dsh-agent-eval/suites/multi-step/fixtures/reset-all.mjs multi-file
+
+      工作区在 /tmp/dsh-multi-step/multi-file/。现在运行
+      node /tmp/dsh-multi-step/multi-file/main.mjs —— 它会失败。
+
+      请读这个目录下的源文件，定位真正的 bug（注意：不是每个文件都有问题），
+      修好它，再运行 main.mjs 确认输出 PASS。
+
+      最后用一句话报告：bug 在哪个文件的哪一行、为什么会导致失败。
+    assert:
+      - type: max_steps
+        value: 20
