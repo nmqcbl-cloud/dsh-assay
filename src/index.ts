@@ -26,6 +26,7 @@ import { runOneBackend } from './eval-runner.js'
 import type { SuiteYaml } from './eval-runner.js'
 import { generateComparison, renderReport } from './compare-reporter.js'
 import { USD_TO_CNY } from './pricing.js'
+import { snapshotRoot, snapshotWorkspace } from './workspace-snapshot.js'
 
 // 插件显示名，出现在 loader 诊断信息里。
 export const name = 'dsh-agent-eval'
@@ -101,15 +102,33 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG) {
         // 只是调用方传的是**剩余**预算：先跑的后端花得多，后跑的可用额度就少。
         const totalCNY = yaml.budgetCNY ?? DEFAULT_BUDGET_CNY
 
+        // 两次运行共用同一个工作区，只在跑完后拍一次快照的话，看到的是 candidate 的
+        // 结果 —— "baseline 做对了没有"就只能靠步数推断。所以在两次之间补拍一份。
+        const workspace = yaml.workspace
+        const snapRoot = workspace !== undefined ? snapshotRoot(args.suite) : undefined
+
         const baseline = await runOneBackend(suitePath, yaml.backends.baseline, totalCNY)
+        const afterBaseline =
+          workspace !== undefined && snapRoot !== undefined
+            ? snapshotWorkspace(workspace, snapRoot, 'after-baseline')
+            : undefined
+
         const spentCNY = baseline.costUSD * USD_TO_CNY
         const remainingCNY = Math.max(0, totalCNY - spentCNY)
         const candidate = await runOneBackend(suitePath, yaml.backends.candidate, remainingCNY)
+        const afterCandidate =
+          workspace !== undefined && snapRoot !== undefined
+            ? snapshotWorkspace(workspace, snapRoot, 'after-candidate')
+            : undefined
 
         const report = {
           baseline,
           candidate,
           comparison: generateComparison(baseline, candidate),
+          snapshots:
+            afterBaseline !== undefined || afterCandidate !== undefined
+              ? { afterBaseline, afterCandidate }
+              : undefined,
         }
 
         return { report: renderReport(report) }

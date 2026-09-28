@@ -12,6 +12,10 @@ name: "M5 失败恢复场景：任务不可完成时是否正确报告失败"
 budgetCNY: 2
 timeoutSec: 300
 
+# 被测 agent 会改动这个目录。填了它就会在 baseline 和 candidate 跑完后各拍一份快照，
+# 否则"baseline 做对了没有"只能靠步数推断。
+workspace: /tmp/dsh-multi-step/failure-report
+
 backends:
   baseline:
     id: deepseek-v4-pro

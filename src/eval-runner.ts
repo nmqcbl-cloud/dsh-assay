@@ -50,6 +50,12 @@ export interface SuiteYaml {
   budgetCNY?: number
   /** 单个 step 的超时秒数。默认 120。 */
   timeoutSec?: number
+  /**
+   * 被测 agent 会改动的工作区目录（绝对路径）。填了就会在 baseline 跑完、
+   * candidate 跑完后各拍一份快照，路径写进报告 —— 否则"baseline 做对了没有"
+   * 只能靠步数推断。不填则不拍快照。
+   */
+  workspace?: string
   backends: {
     baseline: BackendConfig
     candidate: BackendConfig

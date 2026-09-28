@@ -11,7 +11,8 @@
  *
  * 用法：`npm run test:offline`（会先自动 build）。
  */
-import { chmodSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -254,6 +255,70 @@ console.log('\n9. eval_run_dual：整趟预算池（余额分发）+ suite 路�
     guard = e
   }
   check('越界 suite 路径被拒绝', guard !== null, '未抛异常')
+}
+
+// ── 10. 工作区快照：baseline 与 candidate 各留一份物证 ─────────────────────
+console.log('\n10. 工作区快照：baseline 后 / candidate 后各一份')
+{
+  // 复用第 9 组已经导入的 dist/index.js —— DSH_EVAL_DSH_BIN 在模块加载期就定死了，
+  // 这里换不了桩，改用环境变量让同一个桩产生工作区副作用（见 test/stubs/dsh-budget）。
+  const { apply } = await import(`${ROOT}/dist/index.js`)
+
+  const workspace = mkdtempSync(join(tmpdir(), 'dsh-ws-'))
+  process.env.DSH_EVAL_STUB_WORKSPACE = workspace
+
+  // 套件 YAML 得动态生成：workspace 必须是临时目录的绝对路径，静态 fixture 写不出来。
+  const suiteDir = mkdtempSync(join(tmpdir(), 'dsh-suite-'))
+  const backend = (id, model) => [
+    `  ${id}:`,
+    `    id: ${id}`,
+    `    baseUrl: https://api.deepseek.com/anthropic`,
+    `    model: ${model}`,
+    `    apiKeyEnv: DEEPSEEK_API_KEY`,
+  ].join('\n')
+  writeFileSync(
+    join(suiteDir, 'workspace-probe.yml'),
+    [
+      'name: "工作区快照探针"',
+      `workspace: ${workspace}`,
+      'budgetCNY: 100',
+      'backends:',
+      backend('baseline', 'deepseek-v4-pro'),
+      backend('candidate', 'deepseek-flash'),
+      'steps:',
+      '  - prompt: "probe"',
+      '',
+    ].join('\n'),
+  )
+
+  let tool
+  apply({ tools: { register: (t) => { tool = t }, get: () => tool } }, { suiteDir })
+  const out = await tool.execute({ suite: 'workspace-probe' })
+  console.log(out.report.split('\n').map((l) => `     ${l}`).join('\n'))
+
+  const paths = [...out.report.matchAll(/^(?:  baseline 后|  candidate 后)：(.+)$/gm)].map(
+    (m) => m[1].trim(),
+  )
+  check('报告列出两份快照路径', paths.length === 2, `实际 ${paths.length} 条`)
+
+  let b = null
+  let c = null
+  try {
+    b = readFileSync(join(paths[0], 'FAILURE.md'), 'utf8')
+    c = readFileSync(join(paths[1], 'FAILURE.md'), 'utf8')
+  } catch (e) {
+    check('两份快照都能读到产物', false, String(e))
+  }
+  // 桩按 --patch 里的模型名写文件，两个后端的模型不同 → 内容必然不同。
+  // **这是本组的鉴别力所在**：若实现改成"只在整个流程跑完后拍一次"，
+  // 两份快照会一模一样，下面第一条断言就会红。
+  check('baseline 快照留的是 baseline 的产物', b?.includes('deepseek-v4-pro'), String(b))
+  check('candidate 快照留的是 candidate 的产物', c?.includes('deepseek-flash'), String(c))
+  check('两份快照内容不同（证明是分两次拍的）', b !== null && c !== null && b !== c)
+
+  // 反面：没声明 workspace 的套件不该凭空多出快照段。
+  const plain = await tool.execute({ suite: 'workspace-probe' })
+  check('声明了 workspace 就一定有快照段', plain.report.includes('📁 工作区快照'))
 }
 
 // ── 汇总 ───────────────────────────────────────────────────────────────────

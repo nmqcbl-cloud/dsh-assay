@@ -11,6 +11,10 @@ name: "M4 工具链场景：调外部命令 + 解析输出 + 据结果决策 + �
 budgetCNY: 2
 timeoutSec: 300
 
+# 被测 agent 会改动这个目录。填了它就会在 baseline 和 candidate 跑完后各拍一份快照，
+# 否则"baseline 做对了没有"只能靠步数推断。
+workspace: /tmp/dsh-multi-step/tool-chain
+
 backends:
   baseline:
     id: deepseek-v4-pro

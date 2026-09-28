@@ -5,6 +5,32 @@
 # 用量固定之后，"哪个后端花多少钱"就完全由模型单价决定：
 #   谷时  deepseek-v4-pro → $0.002640     deepseek-flash → $0.000750
 # 这两个数就是 test/fixtures/budget-probe.yml 里 budgetCNY 的计算依据。
+#
+# 可选副作用：若设置了 DSH_EVAL_STUB_WORKSPACE，就按 --patch 里的模型名往那个目录
+# 写一份 FAILURE.md。用于验证工作区快照逻辑 —— 两个后端模型不同，两份快照的内容
+# 就必然不同，"是不是真的分两次拍的"一眼可辨。
+#
+# 为什么两件事挤在一个桩里：DSH_EVAL_DSH_BIN 是 eval-runner 的**模块加载期**常量，
+# 而离线回归里第 9、10 组共用同一个 dist/index.js 实例（同一模块说明符，缓存命中），
+# 没法给它们各配一个桩。用环境变量分流是唯一不改被测代码的办法。
+MODEL_FROM_PATCH() {
+  PATCH=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --patch) PATCH="$2"; shift ;;
+    esac
+    shift
+  done
+  grep -o 'deepseek-[a-z0-9-]*' "$PATCH" 2>/dev/null | head -1
+}
+
+if [ -n "${DSH_EVAL_STUB_WORKSPACE:-}" ]; then
+  MODEL=$(MODEL_FROM_PATCH "$@")
+  [ -z "$MODEL" ] && MODEL=unknown
+  mkdir -p "$DSH_EVAL_STUB_WORKSPACE"
+  printf 'model=%s\n' "$MODEL" > "$DSH_EVAL_STUB_WORKSPACE/FAILURE.md"
+fi
+
 cat <<'NDJSON'
 {"type":"session","sessionId":"session-stub-budget","cwd":"/tmp"}
 {"type":"status","phase":"turn_start","turn":1}

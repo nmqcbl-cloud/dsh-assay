@@ -1,4 +1,5 @@
 import { USD_TO_CNY } from './pricing.js'
+import type { WorkspaceSnapshots } from './workspace-snapshot.js'
 
 export interface SuiteResult {
   backendId: string
@@ -20,6 +21,12 @@ export interface DualBackendReport {
     tokenDeltaPercent: number
     regressedCases: string[]
   }
+  /**
+   * 工作区快照路径（可选）。只在套件声明了 `workspace` 且该目录存在时才有。
+   * 加在**报告**这一层而不是 `SuiteResult` 上 —— 后者是后端结果的形状，快照是
+   * 一趟评测的组织方式，两者不该混在一起。
+   */
+  snapshots?: WorkspaceSnapshots
 }
 
 /**
@@ -145,6 +152,19 @@ export function renderReport(report: DualBackendReport): string {
         .find((c) => c.startsWith(SKIPPED_PREFIX))
         ?.slice(SKIPPED_PREFIX.length)
       lines.push(`⚠️ ${side.backendId} 未配置（${envName} 为空），已跳过`)
+    }
+  }
+
+  // 两次运行共用一个工作区，只有 candidate 跑完后的那份是"最终状态"。
+  // 把 baseline 后那份的路径也摆出来，是为了让"baseline 做对了没有"有物证。
+  const snaps = report.snapshots
+  if (snaps && (snaps.afterBaseline !== undefined || snaps.afterCandidate !== undefined)) {
+    lines.push('')
+    lines.push('📁 工作区快照（两次运行共用一个工作区，分别留证）')
+    if (snaps.afterBaseline !== undefined) lines.push(`  baseline 后：${snaps.afterBaseline}`)
+    if (snaps.afterCandidate !== undefined) lines.push(`  candidate 后：${snaps.afterCandidate}`)
+    if (snaps.afterBaseline === undefined) {
+      lines.push('  ⚠️ baseline 后的快照缺失（工作区在该时点不存在）')
     }
   }
 
