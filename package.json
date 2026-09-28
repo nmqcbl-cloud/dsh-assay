@@ -1,7 +1,7 @@
 {
   "name": "dsh-agent-eval",
-  "version": "0.1.0",
-  "description": "dsh-agent-eval — a DeepSeek Harness plugin (tool template).",
+  "version": "1.0.0",
+  "description": "双后端对比评测插件，用「批内对比」回答模型迁移的接受门问题 | Dual-backend comparison evaluation for DeepSeek Harness — a migration acceptance gate",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,18 +10,36 @@
   },
   "files": [
     "dist",
-    "cordis.patch.yml"
+    "suites",
+    "cordis.patch.yml",
+    "CHANGELOG.md"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
   },
+  "keywords": [
+    "deepseek",
+    "dsh",
+    "agent",
+    "evaluation",
+    "migration",
+    "harness"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/REPLACE_WITH_YOUR_GITHUB_USERNAME/dsh-agent-eval.git"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest:offline": "npm run build",
-    "test:offline": "node test/run-offline.mjs"
+    "test:offline": "node test/run-offline.mjs",
+    "prepublishOnly": "pnpm build && pnpm test:offline"
   },
   "dependencies": {
     "@deepseek-ai/dsh-tools": "0.2.0-rc.1",
