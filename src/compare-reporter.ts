@@ -1,6 +1,7 @@
 import { USD_TO_CNY } from './pricing.js'
 import type { WorkspaceSnapshots } from './workspace-snapshot.js'
 import type { CompatibilityReport } from './compatibility-check.js'
+import type { Judgement } from './verdict.js'
 
 export interface SuiteResult {
   backendId: string
@@ -33,6 +34,11 @@ export interface DualBackendReport {
    * 它描述的是一趟迁移的可行性，不是某个后端跑出来的结果。
    */
   compatibility?: CompatibilityReport
+  /**
+   * 迁移判定（可选）。由 `src/verdict.ts` 的 `judge()` 纯函数算出，渲染在报告**最顶部**
+   * —— 三个门各说各话是数据面板，压成一个结论才是决策工具。
+   */
+  judgement?: Judgement
 }
 
 /**
@@ -103,6 +109,22 @@ export function renderReport(report: DualBackendReport): string {
   // 被跳过的后端整列渲染成 `—`：0 是「跑了得 0 分」，`—` 是「根本没跑」，两者必须能分辨。
   const cell = (value: string, skipped: boolean): string =>
     (skipped ? '—' : value).padEnd(16)
+
+  // 判定在最顶部 —— 读报告的人第一眼要看到"能不能迁"，而不是先自己把三张表加总。
+  const judgement = report.judgement
+  if (judgement) {
+    const VICON = { 可迁移: '✅', 有条件迁移: '⚠️', 不可迁移: '❌', 不判定: '➖' } as const
+    lines.push(`🎯 迁移判定：${VICON[judgement.verdict]} ${judgement.verdict}`)
+    lines.push(sep)
+    if (judgement.risks.length > 0) {
+      lines.push('风险清单：')
+      for (const r of judgement.risks) {
+        lines.push(`  ${r.level === 'warn' ? '⚠️' : 'ℹ️'}  ${r.text}`)
+      }
+      lines.push(sep)
+    }
+    lines.push('')
+  }
 
   lines.push('📊 双后端评测对比')
   lines.push(sep)

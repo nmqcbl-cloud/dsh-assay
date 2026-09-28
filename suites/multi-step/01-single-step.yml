@@ -12,6 +12,18 @@ name: "M1 单步基线：一句话解释概念"
 budgetCNY: 2
 timeoutSec: 300
 
+# 烟雾测试（环境探针）：不参与迁移判定。见 src/verdict.ts 的 GateResult.smokeTest。
+smokeTest: true
+
+# ── 判定层输入 ────────────────────────────────────────────────────────────
+# 成本门采信**跨批区间**而不是本次单跑的点值：单次跑给不出区间，而成本是唯一
+# 能跨批使用的指标（三批次 15/15 判定一致）。数据来源 docs/backend-comparison.md 第八节。
+historicalCost:
+  baselineRangeUSD: [0.000368, 0.001342]
+  candidateRangeUSD: [0.00008, 0.0001]
+  savingsPercent: 78.1
+  batches: 3
+  samples: 9
 backends:
   baseline:
     id: deepseek-v4-pro

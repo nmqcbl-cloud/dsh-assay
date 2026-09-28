@@ -46,6 +46,14 @@ export interface CompatibilityResult {
    */
   status: 'pass' | 'fail' | 'not_checked'
   detail: string
+  /**
+   * 风险清单里用的**短**说法（可选）。
+   *
+   * `detail` 是给兼容性门那一段的完整解释（含依据、旁证、下一步），四五行；
+   * 判定层的风险清单要把同样的内容挤进报告最顶部，必须是一句话。
+   * 缺省时判定层退回用 `detail`。
+   */
+  riskText?: string
 }
 
 /** 兼容性门的整体结论。 */
@@ -124,6 +132,7 @@ export function checkSystemFieldFormat(
       name,
       status: 'not_checked',
       detail: '套件 YAML 显式关闭了本检查项',
+      riskText: '检查项已在套件 YAML 中关闭（关闭 ≠ 通过）',
     }
   }
   if (route.api !== ROUTE_API) {
@@ -134,6 +143,7 @@ export function checkSystemFieldFormat(
       detail:
         `本评测的判据基于 Anthropic 语义，但路由「${route.name}」声明的协议是 ` +
         `${JSON.stringify(route.api)}，不是 ${ROUTE_API}`,
+      riskText: `路由声明的协议是 ${JSON.stringify(route.api)}，与 Anthropic 语义的判据不匹配`,
     }
   }
   const shape = `将以内容块数组发送 system（[{type:'text', text}]，pi-ai 在 ${ROUTE_API} 下无条件如此）`
@@ -145,6 +155,7 @@ export function checkSystemFieldFormat(
       detail:
         `${shape}，但端点 ${route.baseUrl} 未自称 Anthropic 兼容 —— ` +
         '把 Anthropic 形状的请求体发往非 Anthropic 端点，会触发 400',
+      riskText: `端点 ${route.baseUrl} 未自称 Anthropic 兼容，Anthropic 形状的请求体会被拒（400）`,
     }
   }
   return {
@@ -177,6 +188,7 @@ export function checkCacheControlUsage(
       name,
       status: 'not_checked',
       detail: '套件 YAML 显式关闭了本检查项',
+      riskText: '检查项已在套件 YAML 中关闭（关闭 ≠ 通过）',
     }
   }
   if (route.api !== ROUTE_API) {
@@ -185,6 +197,7 @@ export function checkCacheControlUsage(
       name,
       status: 'not_checked',
       detail: `协议 ${JSON.stringify(route.api)} 不发送 cache_control，本项不适用`,
+      riskText: '当前协议不发送 cache_control，本项不适用',
     }
   }
   return {
@@ -198,6 +211,8 @@ export function checkCacheControlUsage(
       '而一次相隔数小时的孤立运行是 **0% 命中**（成本恰好等于全价）—— 缓存会过期，冷启动必然全价。' +
       '另：DeepSeek 本身有自动前缀缓存，无法把功劳归给显式标记。' +
       '`cache_control` 的真实效力因此只能靠 v1.1 的探针请求验。',
+    riskText:
+      '静态检查无法判定端点是否兑现，需 v1.1 探针请求（实测缓存命中率在 0%–99% 间波动）',
   }
 }
 

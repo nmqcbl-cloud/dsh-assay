@@ -37,9 +37,13 @@ import { computeCostUSD, USD_TO_CNY } from './pricing.js'
 import type { TokenUsage } from './pricing.js'
 import { SKIPPED_PREFIX } from './compare-reporter.js'
 import type { SuiteResult } from './compare-reporter.js'
-// 只 import 类型：兼容性检查在 `index.ts` 的 execute 里跑（它管的是整趟评测，
-// 不是单个后端），runner 只需要认识 YAML 里那个字段的形状。
+// 只 import 类型：兼容性检查与判定都在 `index.ts` 的 execute 里跑（它们管的是
+// 整趟评测，不是单个后端），runner 只需要认识 YAML 里那几个字段的形状。
 import type { CompatibilityConfig } from './compatibility-check.js'
+import type { CostGate } from './verdict.js'
+
+/** 套件 YAML 里的 `historicalCost` 一节 —— 就是判定层的 `CostGate`。 */
+export type HistoricalCost = CostGate
 
 /** suite YAML 的一个 step。 */
 export interface SuiteStep {
@@ -78,6 +82,25 @@ export interface SuiteYaml {
    * 但不能说"这项算通过了"。判定因此最多到「有条件迁移」，风险清单里会列出它。
    */
   compatibility?: CompatibilityConfig
+  /**
+   * 本套件是**烟雾测试**（环境探针）：只验证插件能加载注册、YAML 能解析、
+   * 模型能发现并调用 `eval_run_dual`，**不参与迁移判定**。
+   *
+   * 只有 `01-single-step` 是 `true`。它没有工作区、没有产物，唯一判据查的是
+   * **措辞**，而措辞正是本设计论证过不该进断言的东西 —— 把它的 1/1 当质量证据
+   * 会读出一个不存在的结论。
+   */
+  smokeTest?: boolean
+  /**
+   * 成本门的**历史区间数据**（跨批合并）。见 `src/verdict.ts` 的 `CostGate`。
+   *
+   * 为什么写死在 YAML 里而不是从本次运行算：成本是唯一能跨批使用的指标
+   * （三批次 15/15 判定一致），而**单次跑给不出区间**。数据来源见
+   * `docs/backend-comparison.md` 第八节的合并区间表。
+   *
+   * 不填 → 判定层认为成本门「数据不足，未判定」（**不否决**，只少一条建议）。
+   */
+  historicalCost?: HistoricalCost
   backends: {
     baseline: BackendConfig
     candidate: BackendConfig

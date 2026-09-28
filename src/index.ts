@@ -24,8 +24,9 @@ import { load } from 'js-yaml'
 // tsc 不会补扩展名，而 Node ESM 解析 `dist/` 时要求显式扩展名。
 import { runOneBackend } from './eval-runner.js'
 import type { SuiteYaml } from './eval-runner.js'
-import { generateComparison, renderReport } from './compare-reporter.js'
+import { generateComparison, isSkipped, renderReport, SKIPPED_PREFIX } from './compare-reporter.js'
 import { runCompatibilityChecks } from './compatibility-check.js'
+import { judge } from './verdict.js'
 import { ROUTE_API } from './model-router.js'
 import { USD_TO_CNY } from './pricing.js'
 import { snapshotRoot, snapshotWorkspace } from './workspace-snapshot.js'
@@ -140,11 +141,37 @@ export function apply(ctx: Context, config: Config = DEFAULT_CONFIG) {
             ? snapshotWorkspace(workspace, snapRoot, 'after-candidate')
             : undefined
 
+        // 判定层：纯函数，零 token。三个门的结果 → 一个结论 + 风险清单。
+        //
+        // 质量门的口径：`passed/total` 是**按 step** 计的。取两侧的 min —— 迁移问的是
+        // "换成候选还行不行"，但基线那一列若是失败的，这次对比本身就不成立，不能只看候选。
+        // 任一侧因缺 key 被跳过（`未配置：` 哨兵）→ `total` 记 0，判定层据此认为"未判定"：
+        // 没跑过不等于跑过了没问题。
+        const sides = [baseline, candidate].filter((s) => !isSkipped(s))
+        const comparable = sides.length === 2
+        const quality = {
+          passed: comparable ? Math.min(...sides.map((s) => s.passed)) : 0,
+          total: comparable ? Math.min(...sides.map((s) => s.total)) : 0,
+          failures: comparable
+            ? sides.flatMap((s) =>
+                s.failedCases.filter((c) => !c.startsWith(SKIPPED_PREFIX)),
+              )
+            : [],
+        }
+
+        const judgement = judge({
+          smokeTest: yaml.smokeTest === true,
+          quality,
+          compatibility: compatibility.results,
+          cost: yaml.historicalCost ?? null,
+        })
+
         const report = {
           baseline,
           candidate,
           comparison: generateComparison(baseline, candidate),
           compatibility,
+          judgement,
           snapshots:
             afterBaseline !== undefined || afterCandidate !== undefined
               ? { afterBaseline, afterCandidate }

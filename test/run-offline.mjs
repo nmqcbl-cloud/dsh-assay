@@ -754,6 +754,170 @@ console.log('\n13. 兼容性门（静态检查，零 token）')
   check('端到端C：兼容性段不依赖后端是否跑成', outC.report.includes('🔒 兼容性门'))
 }
 
+// ── 14. 判定层 ─────────────────────────────────────────────────────────────
+// 纯函数：输入三个门的结果，输出判定 + 风险清单。零 token、零模型调用。
+console.log('\n14. 判定层（纯函数，零 token）')
+{
+  const { judge } = await import(`${ROOT}/dist/verdict.js`)
+
+  const ok = (name, status = 'pass') => ({ name, status, detail: `${name} 的说明` })
+  const cost = {
+    baselineRangeUSD: [0.0016, 0.0021],
+    candidateRangeUSD: [0.00046, 0.0006],
+    savingsPercent: 72.2,
+    batches: 3,
+    samples: 9,
+  }
+  const qualityOk = { passed: 1, total: 1, failures: [] }
+
+  // — 路径 1：质量门失败 → 不可迁移 —
+  const p1 = judge({
+    quality: { passed: 0, total: 1, failures: ['03：文件不存在：main.mjs'] },
+    compatibility: [ok('system 字段格式')],
+    cost,
+  })
+  check('路径1：质量门失败 → 不可迁移', p1.verdict === '不可迁移', p1.verdict)
+  check('路径1：失败套件进风险清单', p1.risks.some((r) => r.text.includes('03：文件不存在')))
+  check(
+    '路径1：质量门失败优先于成本门（成本门不否决，也不翻盘）',
+    p1.verdict === '不可迁移',
+  )
+
+  // — 路径 2：兼容性门有 fail → 不可迁移 —
+  const p2 = judge({
+    quality: qualityOk,
+    compatibility: [
+      { name: 'system 字段格式', status: 'fail', detail: '端点不兼容' },
+      ok('cache_control 使用', 'not_checked'),
+    ],
+    cost,
+  })
+  check('路径2：兼容性门 fail → 不可迁移', p2.verdict === '不可迁移', p2.verdict)
+  check(
+    '路径2：fail 压过 not_checked（一票否决）',
+    p2.risks.filter((r) => r.level === 'warn').length === 1 &&
+      p2.risks.some((r) => r.text.includes('端点不兼容')),
+    JSON.stringify(p2.risks),
+  )
+  check(
+    '路径2：即便质量门全过也判不可迁移（否决与质量门无关）',
+    p2.verdict === '不可迁移',
+  )
+
+  // — 路径 3：兼容性门有 not_checked → 有条件迁移 —
+  const p3 = judge({
+    quality: qualityOk,
+    compatibility: [
+      ok('system 字段格式'),
+      { name: 'cache_control 使用', status: 'not_checked', detail: '静态判不了' },
+    ],
+    cost,
+  })
+  check('路径3：有未检测项 → 有条件迁移', p3.verdict === '有条件迁移', p3.verdict)
+  check(
+    '路径3：未检测项进风险清单且标 warn',
+    p3.risks.some((r) => r.level === 'warn' && r.text.includes('cache_control 使用')),
+  )
+  check(
+    '路径3：同时给出成本门的数据来源（info 级）',
+    p3.risks.some((r) => r.level === 'info' && r.text.includes('n=9') && r.text.includes('3 个批次')),
+    JSON.stringify(p3.risks.find((r) => r.level === 'info')),
+  )
+
+  // — 路径 4：三门全过 + 成本门有数据 → 可迁移 —
+  const p4 = judge({
+    quality: qualityOk,
+    compatibility: [ok('system 字段格式'), ok('cache_control 使用')],
+    cost,
+  })
+  check('路径4：三门全过 → 可迁移', p4.verdict === '可迁移', p4.verdict)
+  check(
+    '路径4：无 warn 级风险（只有数据来源说明）',
+    p4.risks.every((r) => r.level === 'info') && p4.risks.length === 1,
+    JSON.stringify(p4.risks),
+  )
+
+  // — 路径 5：三门全过但成本门为 null → 仍是可迁移，附「数据不足」—
+  const p5 = judge({
+    quality: qualityOk,
+    compatibility: [ok('system 字段格式'), ok('cache_control 使用')],
+    cost: null,
+  })
+  check('路径5：成本门 null 不否决 → 仍是可迁移', p5.verdict === '可迁移', p5.verdict)
+  check(
+    '路径5：风险清单追加「成本门：数据不足，未判定」',
+    p5.risks.some((r) => r.text.includes('成本门：数据不足，未判定')),
+    JSON.stringify(p5.risks),
+  )
+
+  // — 其余边界 —
+  const p6 = judge({ smokeTest: true, quality: { passed: 1, total: 1, failures: [] }, compatibility: [], cost: null })
+  check('边界：烟雾测试 → 不判定（不读质量门）', p6.verdict === '不判定', p6.verdict)
+  const p7 = judge({ quality: { passed: 0, total: 0, failures: [] }, compatibility: [ok('system 字段格式')], cost })
+  check(
+    '边界：后端未跑（total=0）→ 不算通过 → 有条件迁移',
+    p7.verdict === '有条件迁移' && p7.risks.some((r) => r.text.includes('质量门：后端未运行')),
+    `${p7.verdict} / ${JSON.stringify(p7.risks)}`,
+  )
+  const p8 = judge({ quality: qualityOk, compatibility: [], cost: null })
+  check(
+    '边界：兼容性门为空数组 → 视为无失败无未检测（由调用方保证非空）',
+    p8.verdict === '可迁移',
+    p8.verdict,
+  )
+
+  // — 端到端：判定出现在报告**最顶部** —
+  const { apply } = await import(`${ROOT}/dist/index.js`)
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-verdict-e2e-'))
+  const backend = (role, model) => [
+    `  ${role}:`,
+    `    id: ${role}`,
+    `    baseUrl: https://api.deepseek.com/anthropic`,
+    `    model: ${model}`,
+    `    apiKeyEnv: DEEPSEEK_API_KEY`,
+  ].join('\n')
+  writeFileSync(
+    join(dir, 'v.yml'),
+    [
+      'name: "判定层端到端"',
+      'budgetCNY: 100',
+      'historicalCost:',
+      '  baselineRangeUSD: [0.0016, 0.0021]',
+      '  candidateRangeUSD: [0.00046, 0.0006]',
+      '  savingsPercent: 72.2',
+      '  batches: 3',
+      '  samples: 9',
+      'backends:',
+      backend('baseline', 'deepseek-v4-pro'),
+      backend('candidate', 'deepseek-flash'),
+      'steps:',
+      '  - prompt: "probe"',
+      '    assert:',
+      '      - type: output_contains',
+      '        text: "Harness"',
+      '',
+    ].join('\n'),
+  )
+  let t
+  apply({ tools: { register: (x) => { t = x }, get: () => t } }, { suiteDir: dir })
+  const out = await t.execute({ suite: 'v' })
+  check('端到端：判定渲染在报告最顶部', out.report.startsWith('🎯 迁移判定：'), out.report.slice(0, 40))
+  check(
+    '端到端：真实配置（system pass / cache_control 未检测）→ 有条件迁移',
+    out.report.includes('🎯 迁移判定：⚠️ 有条件迁移'),
+    out.report.split('\n')[0],
+  )
+  check(
+    '端到端：风险清单在判定下方、对比表上方',
+    out.report.indexOf('风险清单：') < out.report.indexOf('📊 双后端评测对比'),
+  )
+  check(
+    '端到端：historicalCost 从 YAML 读到了判定层（输出 n=9 / 3 个批次）',
+    out.report.includes('n=9，3 个批次'),
+    out.report.match(/成本门：.*/)?.[0],
+  )
+}
+
 // ── 汇总 ───────────────────────────────────────────────────────────────────
 console.log('')
 if (failures.length) {

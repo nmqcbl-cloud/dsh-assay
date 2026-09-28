@@ -15,6 +15,15 @@ timeoutSec: 300
 # 否则"baseline 做对了没有"只能靠步数推断。
 workspace: /tmp/dsh-multi-step/two-step
 
+# ── 判定层输入 ────────────────────────────────────────────────────────────
+# 成本门采信**跨批区间**而不是本次单跑的点值：单次跑给不出区间，而成本是唯一
+# 能跨批使用的指标（三批次 15/15 判定一致）。数据来源 docs/backend-comparison.md 第八节。
+historicalCost:
+  baselineRangeUSD: [0.0016, 0.002118]
+  candidateRangeUSD: [0.000462, 0.0006]
+  savingsPercent: 72.2
+  batches: 3
+  samples: 9
 backends:
   baseline:
     id: deepseek-v4-pro
