@@ -46,8 +46,9 @@ DEEPSEEK_API_KEY='<key>' dsh --profile eval-runner headless --json "调用 eval_
 
 ## ⚠️ 评测设计约束 / Design constraints
 
-**成本不可跨运行对比。** 同一套件连跑三次，`inputTokens` 方差为 0，成本却摆动 **5.9×–8.2%**
-——差异全部来自 prefix cache 冷热。用 `inputTokens` 当稳定性指标会得出完全错误的结论。
+**成本不可跨运行对比。** 同一套件连跑三次，`inputTokens` 方差为 **0%**，成本却摆动
+**2×–8.2%**（取决于首次是否冷启动）。抖动有两个独立来源：**prefix cache 冷热**和**输出长度**
+（实测 `outputTokens` 极差 170.9%）。用 `inputTokens` 当稳定性指标会得出完全错误的结论。
 
 详见 [`docs/eval-design-constraints.md`](docs/eval-design-constraints.md)。第三阶段开工前必读，
 内含**第三阶段测量协议**（波动测试的命令 / 四项指标 / 判据）。
