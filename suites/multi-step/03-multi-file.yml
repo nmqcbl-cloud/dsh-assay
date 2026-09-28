@@ -40,5 +40,16 @@ steps:
 
       最后用一句话报告：bug 在哪个文件的哪一行、为什么会导致失败。
     assert:
+      # 第一条是**真正的判据**：修好 format.mjs 之后，这行描述文本必须一字不差。
+      # 断言的是"最高 30"而不是"PASS"，因为 PASS 是 main.mjs 自己算出来的 ——
+      # 只查 PASS 的话，一个把 main.mjs 改坏的模型仍可能过。查描述文本还挡得住
+      # "改 main.mjs 的期望值来骗过自检"这种作弊（那样会变成"最高 10"）。
+      - type: command_output_contains
+        command: ["node", "main.mjs"]
+        text: "平均 20.00，最高 30"
+      # 第二条兜底：main.mjs 的自检本身也要通过（它失败时会 exit 1 并打印 FAIL）。
+      - type: command_output_contains
+        command: ["node", "main.mjs"]
+        text: "PASS"
       - type: max_steps
         value: 20

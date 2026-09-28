@@ -32,6 +32,7 @@ import { load } from 'js-yaml'
 // 而 Node ESM 解析 dist/ 时要求显式扩展名。
 import { buildPatchConfig } from './model-router.js'
 import type { BackendConfig } from './model-router.js'
+import { checkArtifactAssert, isArtifactAssertType } from './artifact-assert.js'
 import { computeCostUSD, USD_TO_CNY } from './pricing.js'
 import type { TokenUsage } from './pricing.js'
 import { SKIPPED_PREFIX } from './compare-reporter.js'
@@ -51,9 +52,14 @@ export interface SuiteYaml {
   /** 单个 step 的超时秒数。默认 120。 */
   timeoutSec?: number
   /**
-   * 被测 agent 会改动的工作区目录（绝对路径）。填了就会在 baseline 跑完、
-   * candidate 跑完后各拍一份快照，路径写进报告 —— 否则"baseline 做对了没有"
-   * 只能靠步数推断。不填则不拍快照。
+   * 被测 agent 会改动的工作区目录（绝对路径）。两个用途：
+   *
+   *   1. **快照**：baseline 跑完、candidate 跑完后各拍一份，路径写进报告 ——
+   *      否则"baseline 做对了没有"只能靠步数推断。
+   *   2. **产物断言的根**：`file_*` / `command_*` 断言里的相对路径都相对它解析。
+   *      用了产物断言却没声明 workspace，断言**直接判失败**（不回退到 cwd）。
+   *
+   * 不填则不拍快照、也不能用产物断言。
    */
   workspace?: string
   backends: {
@@ -253,8 +259,22 @@ function runHeadless(
   })
 }
 
-/** 在 `final.text` 与步数上执行断言，返回失败描述列表（空 = 全通过）。 */
-function checkAssertions(asserts: Array<Record<string, unknown>>, run: StepRun): string[] {
+/**
+ * 执行一个 step 的断言，返回失败描述列表（空 = 全通过）。
+ *
+ * 两类断言，判据来源完全不同：
+ *   - 对话类（`output_contains` / `max_steps`）查 `final.text` 与步数
+ *   - **产物类**查工作区文件系统，实现见 `artifact-assert.ts`
+ *
+ * 产物断言在这里（而非整趟跑完之后）执行是**刻意的**：baseline 的断言在
+ * candidate 启动之前就跑完了，此时工作区里放的是 baseline 的产物。
+ * 若挪到整趟结束后统一跑，两次运行共用一个工作区，看到的永远是 candidate 的结果。
+ */
+function checkAssertions(
+  asserts: Array<Record<string, unknown>>,
+  run: StepRun,
+  workspace: string | undefined
+): string[] {
   const failures: string[] = []
   for (const a of asserts) {
     const type = String(a.type ?? '')
@@ -270,6 +290,9 @@ function checkAssertions(asserts: Array<Record<string, unknown>>, run: StepRun):
       if (Number.isFinite(max) && run.steps > max) {
         failures.push(`步数 ${run.steps} 超过上限 ${max}`)
       }
+    } else if (isArtifactAssertType(type)) {
+      const f = checkArtifactAssert(a, workspace)
+      if (f !== undefined) failures.push(f)
     } else {
       // 未知断言类型按失败计：静默跳过会让一个写错的断言看起来像通过了。
       failures.push(`未知断言类型 ${JSON.stringify(type)}`)
@@ -346,7 +369,7 @@ export async function runOneBackend(
         continue
       }
 
-      const stepFailures = checkAssertions(step.assert ?? [], run)
+      const stepFailures = checkAssertions(step.assert ?? [], run, suite.workspace)
       if (stepFailures.length === 0) {
         passed += 1
       } else {

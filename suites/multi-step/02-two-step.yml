@@ -41,5 +41,12 @@ steps:
 
       最后用一句话报告：改了什么、验证结果如何。
     assert:
+      # 判据是**产物**：修好之后 slugify.mjs 跑出来必须正好是 hello-world。
+      # 用 equals 不用 contains —— prompt 原话就是"确认输出正好是 hello-world"，
+      # 脚本本来也只打印这一行。contains 会被"模型加了句调试输出"蒙混过去。
+      - type: command_output_equals
+        command: ["node", "slugify.mjs"]
+        text: "hello-world"
+      # 护栏，不是判据：只防死循环烧钱。
       - type: max_steps
         value: 20

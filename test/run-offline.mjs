@@ -321,6 +321,230 @@ console.log('\n10. 工作区快照：baseline 后 / candidate 后各一份')
   check('声明了 workspace 就一定有快照段', plain.report.includes('📁 工作区快照'))
 }
 
+// ── 11. 产物断言：语义、路径守卫、命令边界 ─────────────────────────────────
+console.log('\n11. 产物断言：file_* / command_* 的通过与失败')
+{
+  const { checkArtifactAssert } = await import(`${ROOT}/dist/artifact-assert.js`)
+
+  const ws = mkdtempSync(join(tmpdir(), 'dsh-artifact-'))
+  writeFileSync(join(ws, 'present.txt'), 'hello world\n')
+  writeFileSync(join(ws, 'data.json'), '{\n  "topSku": "B-207",\n  "qty": 48\n}\n')
+  writeFileSync(join(ws, 'reordered.json'), '{"qty":48,"topSku":"B-207"}')
+  writeFileSync(join(ws, 'wrong.json'), '{"topSku":"A-100","qty":48}')
+  writeFileSync(join(ws, 'stringy.json'), '{"topSku":"B-207","qty":"48"}')
+  writeFileSync(join(ws, 'arr.json'), '[1,2,3]')
+  writeFileSync(join(ws, 'arr2.json'), '[1,3,2]')
+  writeFileSync(join(ws, 'nested.json'), '{"a":{"b":[{"c":1}]}}')
+  writeFileSync(join(ws, 'broken.json'), '{not json')
+  writeFileSync(join(ws, 'ok.mjs'), "console.log('OK-LINE')\n")
+  writeFileSync(join(ws, 'noisy.mjs'), "console.log('debug: OK-LINE expected')\n")
+  writeFileSync(join(ws, 'fail.mjs'), "console.log('nope')\nprocess.exit(1)\n")
+
+  const ok = (a) => checkArtifactAssert(a, ws) === undefined
+  const bad = (a) => typeof checkArtifactAssert(a, ws) === 'string'
+  const why = (a) => String(checkArtifactAssert(a, ws)).slice(0, 70)
+
+  // file_exists / file_not_exists
+  check('file_exists 命中', ok({ type: 'file_exists', path: 'present.txt' }))
+  check('file_exists 未命中即失败', bad({ type: 'file_exists', path: 'nope.txt' }))
+  check('file_not_exists 命中', ok({ type: 'file_not_exists', path: 'nope.txt' }))
+  check('file_not_exists 撞上存在文件即失败', bad({ type: 'file_not_exists', path: 'present.txt' }))
+
+  // file_content_contains
+  check('file_content_contains 命中', ok({ type: 'file_content_contains', path: 'present.txt', text: 'hello' }))
+  check('file_content_contains 未命中即失败', bad({ type: 'file_content_contains', path: 'present.txt', text: 'goodbye' }))
+  check('file_content_contains 文件不存在即失败', bad({ type: 'file_content_contains', path: 'nope.txt', text: 'x' }))
+
+  // file_json_equals —— 本组的重点：语义 vs 字符串
+  const want = { type: 'file_json_equals', path: 'data.json', value: { topSku: 'B-207', qty: 48 } }
+  check('file_json_equals 原样命中', ok(want))
+  check(
+    'file_json_equals 键序不同仍命中（键序无关）',
+    ok({ ...want, path: 'reordered.json' }),
+  )
+  check(
+    'file_json_equals 空白不同仍命中（已由 data.json 的多行格式覆盖）',
+    ok(want),
+    '期望值无空白、文件有多行缩进，命中即证明空白无关',
+  )
+  check('file_json_equals 值不同即失败', bad({ ...want, path: 'wrong.json' }))
+  // 数字 vs 字符串：48 与 "48" 必须不等，否则类型错误会溜过去。
+  check('file_json_equals 类型不同即失败（48 ≠ "48"）', bad({ ...want, path: 'stringy.json' }))
+  // 数组顺序敏感（对象键序无关，数组顺序有关）——两者不能混为一谈。
+  check(
+    'file_json_equals 数组顺序不同即失败',
+    bad({ type: 'file_json_equals', path: 'arr.json', value: [1, 3, 2] }),
+  )
+  check(
+    'file_json_equals 数组顺序相同命中',
+    ok({ type: 'file_json_equals', path: 'arr2.json', value: [1, 3, 2] }),
+  )
+  check(
+    'file_json_equals 嵌套结构命中',
+    ok({ type: 'file_json_equals', path: 'nested.json', value: { a: { b: [{ c: 1 }] } } }),
+  )
+  check('file_json_equals 非法 JSON 即失败', bad({ ...want, path: 'broken.json' }))
+  check('file_json_equals 文件不存在即失败', bad({ ...want, path: 'nope.txt' }))
+
+  // command_output_*
+  check(
+    'command_output_equals 命中',
+    ok({ type: 'command_output_equals', command: ['node', 'ok.mjs'], text: 'OK-LINE' }),
+  )
+  check(
+    'command_output_equals 多余输出即失败',
+    bad({ type: 'command_output_equals', command: ['node', 'noisy.mjs'], text: 'OK-LINE' }),
+  )
+  check(
+    'command_output_contains 容忍多余输出',
+    ok({ type: 'command_output_contains', command: ['node', 'noisy.mjs'], text: 'OK-LINE' }),
+  )
+  check(
+    'command_output_contains 未命中即失败',
+    bad({ type: 'command_output_contains', command: ['node', 'ok.mjs'], text: 'NOPE' }),
+  )
+  check(
+    '命令失败（exit 1）时输出仍判内容',
+    bad({ type: 'command_output_contains', command: ['node', 'fail.mjs'], text: 'OK-LINE' }),
+  )
+
+  // 安全边界：越界路径、非白名单解释器、argv 形状、shell 元字符
+  check(
+    '产物断言路径越界被拒',
+    bad({ type: 'file_exists', path: '../../etc/passwd' }),
+    why({ type: 'file_exists', path: '../../etc/passwd' }),
+  )
+  check(
+    '命令断言路径越界被拒',
+    bad({ type: 'command_output_contains', command: ['node', '../../etc/passwd'], text: 'x' }),
+  )
+  check(
+    '非白名单解释器被拒',
+    bad({ type: 'command_output_contains', command: ['python3', 'ok.mjs'], text: 'x' }),
+    why({ type: 'command_output_contains', command: ['python3', 'ok.mjs'], text: 'x' }),
+  )
+  check(
+    'argv 多于两个元素被拒（挡住 node -e "<任意代码>"）',
+    bad({ type: 'command_output_contains', command: ['node', '-e', 'console.log(1)'], text: 'x' }),
+  )
+  check(
+    'argv 不是数组被拒',
+    bad({ type: 'command_output_contains', command: 'node ok.mjs', text: 'x' }),
+  )
+  // shell: false 的证明 —— 元字符不被解释，整体当成一个文件路径，于是"文件不存在"。
+  check(
+    'shell 元字符不被解释（; 只是普通字符）',
+    bad({ type: 'command_output_contains', command: ['node', 'ok.mjs; echo pwned'], text: 'x' }),
+    why({ type: 'command_output_contains', command: ['node', 'ok.mjs; echo pwned'], text: 'x' }),
+  )
+
+  // 没声明 workspace 必须**判失败**，不能回退到 cwd —— 回退会带来假通过。
+  check(
+    '未声明 workspace 时产物断言判失败',
+    typeof checkArtifactAssert({ type: 'file_exists', path: 'present.txt' }, undefined) === 'string',
+  )
+
+  // 反面：新类型必须被 checkAssertions 认，不能落进"未知断言类型"分支。
+  const { apply: apply2 } = await import(`${ROOT}/dist/index.js`)
+  const suiteDir2 = mkdtempSync(join(tmpdir(), 'dsh-suite2-'))
+  const badType = (t) => `      - type: ${t}\n        path: whatever\n`
+  writeFileSync(
+    join(suiteDir2, 'unknown.yml'),
+    [
+      'name: "未知产物断言"',
+      `workspace: ${ws}`,
+      'budgetCNY: 100',
+      'backends:',
+      '  baseline:',
+      '    id: deepseek-v4-pro',
+      '    baseUrl: https://api.deepseek.com/anthropic',
+      '    model: deepseek-v4-pro',
+      '    apiKeyEnv: DEEPSEEK_API_KEY',
+      '  candidate:',
+      '    id: deepseek-v4-pro',
+      '    baseUrl: https://api.deepseek.com/anthropic',
+      '    model: deepseek-v4-pro',
+      '    apiKeyEnv: DEEPSEEK_API_KEY',
+      'steps:',
+      '  - prompt: "probe"',
+      '    assert:',
+      '      - type: file_teleport',
+      '        path: x',
+      '',
+    ].join('\n'),
+  )
+  let tool2
+  apply2({ tools: { register: (t) => { tool2 = t }, get: () => tool2 } }, { suiteDir: suiteDir2 })
+  const unk = await tool2.execute({ suite: 'unknown' })
+  check(
+    '拼错的产物断言类型报「未知断言类型」而非静默通过',
+    unk.report.includes('未知断言类型'),
+    badType('file_teleport'),
+  )
+}
+
+// ── 12. 产物断言经 eval_run_dual 端到端生效 ────────────────────────────────
+console.log('\n12. 产物断言端到端：workspace 真的从 YAML 传到了断言')
+{
+  const { apply } = await import(`${ROOT}/dist/index.js`)
+  const ws = mkdtempSync(join(tmpdir(), 'dsh-e2e-artifact-'))
+  process.env.DSH_EVAL_STUB_WORKSPACE = ws
+
+  const suiteDir = mkdtempSync(join(tmpdir(), 'dsh-suite3-'))
+  // 键是角色（baseline/candidate），不是模型名 —— 写成模型名会让 backends.baseline 为空。
+  const backend = (role, model) => [
+    `  ${role}:`,
+    `    id: ${role}`,
+    `    baseUrl: https://api.deepseek.com/anthropic`,
+    `    model: ${model}`,
+    `    apiKeyEnv: DEEPSEEK_API_KEY`,
+  ].join('\n')
+  // 桩会往工作区写 FAILURE.md。两条断言一过一败，用来证明：
+  //   ① workspace 确实被传下去了（否则两条都会因"未声明 workspace"而失败）
+  //   ② 失败信息会带着期望与实际进 failedCases
+  writeFileSync(
+    join(suiteDir, 'e2e-artifact.yml'),
+    [
+      'name: "产物断言端到端"',
+      `workspace: ${ws}`,
+      'budgetCNY: 100',
+      'backends:',
+      backend('baseline', 'deepseek-v4-pro'),
+      backend('candidate', 'deepseek-flash'),
+      'steps:',
+      '  - prompt: "probe"',
+      '    assert:',
+      '      - type: file_exists',
+      '        path: FAILURE.md',
+      '      - type: file_not_exists',
+      '        path: FAILURE.md',
+      '',
+    ].join('\n'),
+  )
+
+  let tool
+  apply({ tools: { register: (t) => { tool = t }, get: () => tool } }, { suiteDir })
+  const out = await tool.execute({ suite: 'e2e-artifact' })
+
+  // 注意粒度：`passed/total` 是**按 step** 计的 —— 一个 step 的所有断言全过才算过。
+  // 所以这一组（一过一败）是 0/1，不是 1/2。
+  check('一过一败的 step 整体判失败（0/1）', out.report.includes('0/1'), out.report.match(/通过率.*/)?.[0])
+  check(
+    '失败的产物断言带期望与实际进报告',
+    out.report.includes('文件不应存在，但存在：FAILURE.md'),
+    out.report.match(/文件不应存在.*/)?.[0],
+  )
+  // 关键：file_exists 那条**没有**报"文件不存在"，说明它真的看到了桩写的 FAILURE.md，
+  // 即 workspace 确实从 YAML 传到了断言里。
+  check(
+    'file_exists 那条没报失败（证明 workspace 传下去了）',
+    !out.report.includes('文件不存在：FAILURE.md'),
+    out.report.match(/文件不存在.*/)?.[0],
+  )
+  // 反面：若 workspace 没传下去，两条都会因"未声明 workspace"失败。
+  check('未出现「未声明 workspace」', !out.report.includes('未声明 workspace'))
+}
+
 // ── 汇总 ───────────────────────────────────────────────────────────────────
 console.log('')
 if (failures.length) {

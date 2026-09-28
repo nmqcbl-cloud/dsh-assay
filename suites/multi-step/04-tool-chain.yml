@@ -45,5 +45,13 @@ steps:
 
       最后用一句话报告 topSku 和 qty。
     assert:
+      # 判据是**产物内容**，且必须走 JSON 语义比较：实测模型写出的是
+      # {"topSku": "B-207", "qty": 48}（键值间带空格），与真值字符串不等但语义相同，
+      # 用字符串相等会把**正确的产物判成失败**。
+      - type: file_json_equals
+        path: report.json
+        value:
+          topSku: "B-207"
+          qty: 48
       - type: max_steps
         value: 20
